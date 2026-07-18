@@ -1,0 +1,7 @@
+id: instagram
+name: Instagram Trend Bot
+network: instagram
+version: 0.1.0
+entry: ig_agent.api:app
+default_port: 7411
+description: Instagram research + engagement (auto like/follow; HITL comment/DM/post)
