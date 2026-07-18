@@ -1,14 +1,15 @@
 # social-agent-platform
 
-**This is the repo to clone.** Fleet Control + shared SDK. Network bots (Instagram, LinkedIn, X, …) are **plugins**.
+**This is the repo to clone.** Fleet Control dashboard. Network bots are **plugins** in their own repos.
 
 ```text
-social-agent-platform/          ← you are here (clone this)
-├── agent-sdk/                  core
-├── orchestrator/               Fleet Control UI
-├── bot-linkedin/ bot-x/        optional built-in stubs
+social-agent-platform/          <- you are here
+├── agent-sdk/                  <- cloned from kashewknutt/agent-sdk
+├── orchestrator/               Fleet Control UI (:7400)
 ├── plugins/
-│   └── bot-instagram/          ← cloned from kashewknutt/instagram-bot
+│   ├── bot-instagram/          <- kashewknutt/instagram-bot
+│   ├── bot-linkedin/           <- kashewknutt/linkedin-bot
+│   └── bot-x/                  <- kashewknutt/x-bot
 ├── setup.ps1 / setup.py
 └── platform.manifest.yaml
 ```
@@ -20,6 +21,9 @@ cd D:\GitHub
 git clone https://github.com/kashewknutt/social-agent-platform.git
 cd social-agent-platform
 .\setup.ps1 -Profile fleet
+.\.venv\Scripts\Activate.ps1
+python -m orchestrator_app.main
+# http://127.0.0.1:7400
 ```
 
 Profiles:
@@ -28,24 +32,16 @@ Profiles:
 |---------|----------------|
 | `core` | SDK + dashboard only |
 | `instagram` | + Instagram plugin |
-| `fleet` | + Instagram + LinkedIn/X stubs |
+| `fleet` | + Instagram + LinkedIn + X plugins |
 
-**Open in Cursor:** this folder, or double-click `social-agents.code-workspace`.
+## Plugin repos
 
-```powershell
-.\.venv\Scripts\Activate.ps1
-# set MOONSHOT_API_KEY in plugins\bot-instagram\.env
-python -m orchestrator_app.main
-# http://127.0.0.1:7400
-```
+| Bot | Repo | Port |
+|-----|------|------|
+| Instagram | [instagram-bot](https://github.com/kashewknutt/instagram-bot) | 7411 |
+| LinkedIn | [linkedin-bot](https://github.com/kashewknutt/linkedin-bot) | 7412 |
+| X | [x-bot](https://github.com/kashewknutt/x-bot) | 7413 |
 
-## Instagram is a plugin
+Shared control contract: [agent-sdk](https://github.com/kashewknutt/agent-sdk).
 
-Setup clones [kashewknutt/instagram-bot](https://github.com/kashewknutt/instagram-bot) into `plugins/bot-instagram`.  
-You do **not** need to clone Instagram first.
-
-To add another bot later: publish it as its own repo, add an entry under `packages:` in `platform.manifest.yaml` with `kind: plugin`, and reference it from a profile.
-
-## Multi-root workspace
-
-`social-agents.code-workspace` opens the platform and any checked-out plugins together for development.
+To add another bot: publish its own repo, add a `kind: plugin` entry under `packages:` in `platform.manifest.yaml`, and reference it from a profile.

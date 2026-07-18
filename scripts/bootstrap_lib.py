@@ -61,7 +61,7 @@ def load_manifest(root: Path | None = None) -> dict[str, Any]:
     if manifest_path is None:
         raise FileNotFoundError(
             "platform.manifest.yaml not found. Clone "
-            "https://github.com/kashewknutt/instagram-bot first."
+            "https://github.com/kashewknutt/social-agent-platform first."
         )
     data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
     # Workspace root: monorepo root if manifest is there; else parent of package
@@ -100,7 +100,7 @@ def ensure_package(
     """Ensure package exists under workspace; clone plugins if missing."""
     dest = package_dir(workspace, name, manifest)
     if dest.exists() and any(p for p in dest.iterdir() if p.name != ".gitkeep"):
-        print(f"✓ {name} already present at {dest}")
+        print(f"[ok] {name} already present at {dest}")
         return dest
 
     meta = manifest["packages"][name]
@@ -108,27 +108,28 @@ def ensure_package(
     branch = meta.get("branch") or manifest.get("platform_branch", "main")
     dest.parent.mkdir(parents=True, exist_ok=True)
 
-    # External plugin repo (e.g. Instagram) — clone whole repo into plugins/<name>
-    if kind == "plugin" or meta.get("repo"):
+    # External package (library or plugin) — clone whole repo into path
+    if kind in ("plugin", "library") or meta.get("repo"):
         repo = meta.get("repo")
         if not repo:
-            raise RuntimeError(f"Plugin {name} is missing repo URL in platform.manifest.yaml")
-        print(f"→ Cloning plugin {name} from {repo} (branch {branch})")
+            raise RuntimeError(f"Package {name} is missing repo URL in platform.manifest.yaml")
+        label = "plugin" if kind == "plugin" else "package"
+        print(f"-> Cloning {label} {name} from {repo} (branch {branch})")
         if dest.exists():
             shutil.rmtree(dest)
         run(["git", "clone", "--branch", branch, "--depth", "1", repo, str(dest)])
-        print(f"✓ {name} ready at {dest}")
+        print(f"[ok] {name} ready at {dest}")
         return dest
 
     # Core package should already ship inside the platform clone
     if dest.exists():
-        print(f"✓ {name} already present at {dest}")
+        print(f"[ok] {name} already present at {dest}")
         return dest
 
     # Fallback: sparse-checkout from platform_repo (recovery / partial checkout)
     repo = manifest["platform_repo"]
     subdir = meta["path"]
-    print(f"→ Fetching core package {name} from platform repo ({subdir})")
+    print(f"-> Fetching core package {name} from platform repo ({subdir})")
     with tempfile.TemporaryDirectory(prefix="platform-sparse-") as tmp:
         tmp_path = Path(tmp) / "repo"
         run(
@@ -150,7 +151,7 @@ def ensure_package(
         if not src.exists():
             raise FileNotFoundError(f"{subdir} not found in {repo}@{branch}")
         shutil.copytree(src, dest)
-    print(f"✓ {name} ready at {dest}")
+    print(f"[ok] {name} ready at {dest}")
     return dest
 
 
@@ -194,7 +195,7 @@ def ensure_packages(
 def create_venv(workspace: Path) -> Path:
     venv = workspace / ".venv"
     if not (venv / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")).exists():
-        print(f"→ Creating venv at {venv}")
+        print(f"-> Creating venv at {venv}")
         run([sys.executable, "-m", "venv", str(venv)])
     return venv
 
@@ -249,7 +250,7 @@ def write_orchestrator_yaml(
         "bots:\n" + "\n".join(bots_block) + "\n"
     )
     (orch / "orchestrator.yaml").write_text(content, encoding="utf-8")
-    print(f"✓ Wrote {orch / 'orchestrator.yaml'}")
+    print(f"[ok] Wrote {orch / 'orchestrator.yaml'}")
 
 
 def copy_env_examples(workspace: Path, packages: list[str], manifest: dict[str, Any]) -> None:
@@ -264,7 +265,7 @@ def copy_env_examples(workspace: Path, packages: list[str], manifest: dict[str, 
         dest = src.parent / ".env"
         if src.exists() and not dest.exists():
             shutil.copy(src, dest)
-            print(f"✓ Created {dest} — set MOONSHOT_API_KEY before live runs")
+            print(f"[ok] Created {dest} - set MOONSHOT_API_KEY before live runs")
 
 
 def interactive_profile(manifest: dict[str, Any]) -> str:
@@ -272,7 +273,7 @@ def interactive_profile(manifest: dict[str, Any]) -> str:
     print("\nWhat do you want to set up?\n")
     keys = list(profiles.keys())
     for i, key in enumerate(keys, 1):
-        print(f"  {i}) {key:16} — {profiles[key]['description']}")
+        print(f"  {i}) {key:16} - {profiles[key]['description']}")
     print()
     raw = input(f"Choose [1-{len(keys)}] (default 2=fleet): ").strip() or "2"
     try:
@@ -295,7 +296,7 @@ def bootstrap(
         if root is not None:
             workspace = root
         elif (Path.cwd() / "bot.yaml").exists() or (Path.cwd() / "orchestrator.yaml").exists():
-            # Running from a standalone package clone → siblings go next to it
+            # Running from a standalone package clone - siblings go next to it
             workspace = Path.cwd().resolve().parent
         else:
             workspace = Path.cwd().resolve()
@@ -307,7 +308,7 @@ def bootstrap(
     try:
         manifest = load_manifest(workspace)
     except FileNotFoundError:
-        print("→ No local manifest — seeding workspace from platform repo")
+        print("-> No local manifest - seeding workspace from platform repo")
         _seed_workspace(workspace)
         manifest = load_manifest(workspace)
 
@@ -331,7 +332,7 @@ def bootstrap(
         run([str(py), "-m", "pip", "install", "pyyaml"])
         pip_install_editable(py, paths)
         if "bot-instagram" in selected:
-            print("→ Installing Playwright Chromium for Instagram bot")
+            print("-> Installing Playwright Chromium for Instagram bot")
             run([str(py), "-m", "playwright", "install", "chromium"], check=False)
 
     profile_meta = manifest["profiles"].get(profile or "fleet", {})
@@ -347,7 +348,7 @@ def bootstrap(
         print("  .\\.venv\\Scripts\\Activate.ps1   # Windows")
         print("  source .venv/bin/activate      # macOS/Linux")
         print("  python -m orchestrator_app.main")
-        print("  → http://127.0.0.1:7400")
+        print("  -> http://127.0.0.1:7400")
     if profile_meta.get("run_hint"):
         print(f"Hint: {profile_meta['run_hint']}")
     print("================================\n")
@@ -362,7 +363,6 @@ def bootstrap(
 def _seed_workspace(workspace: Path) -> None:
     """Clone platform repo into workspace if empty / missing packages."""
     workspace.mkdir(parents=True, exist_ok=True)
-    manifest_url = "https://raw.githubusercontent.com/kashewknutt/instagram-bot/main/platform.manifest.yaml"
     # Prefer git sparse clone of just the manifest + scripts
     if any(workspace.iterdir()) and not (workspace / "platform.manifest.yaml").exists():
         # Workspace has some packages already — fetch manifest file only via git archive-like clone
@@ -376,7 +376,7 @@ def _seed_workspace(workspace: Path) -> None:
                     "--sparse",
                     "--depth",
                     "1",
-                    "https://github.com/kashewknutt/instagram-bot.git",
+                    "https://github.com/kashewknutt/social-agent-platform.git",
                     str(tmp_path),
                 ]
             )
@@ -393,7 +393,7 @@ def _seed_workspace(workspace: Path) -> None:
                 "clone",
                 "--depth",
                 "1",
-                "https://github.com/kashewknutt/instagram-bot.git",
+                "https://github.com/kashewknutt/social-agent-platform.git",
                 str(workspace / "_platform_tmp"),
             ]
         )

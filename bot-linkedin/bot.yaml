@@ -1,7 +1,0 @@
-id: linkedin
-name: LinkedIn Trend Bot
-network: linkedin
-version: 0.1.0
-entry: linkedin_bot.api:app
-default_port: 7412
-description: Stub LinkedIn observation bot (pipeline not implemented yet)

@@ -1,7 +1,0 @@
-id: x
-name: X Trend Bot
-network: x
-version: 0.1.0
-entry: x_bot.api:app
-default_port: 7413
-description: Stub X (Twitter) observation bot (pipeline not implemented yet)

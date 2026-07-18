@@ -1,21 +1,10 @@
 {
   "folders": [
-    {
-      "name": "platform",
-      "path": "."
-    },
-    {
-      "name": "plugin: instagram",
-      "path": "plugins/bot-instagram"
-    },
-    {
-      "name": "plugin: linkedin",
-      "path": "bot-linkedin"
-    },
-    {
-      "name": "plugin: x",
-      "path": "bot-x"
-    }
+    { "name": "platform", "path": "." },
+    { "name": "agent-sdk", "path": "agent-sdk" },
+    { "name": "plugin: instagram", "path": "plugins/bot-instagram" },
+    { "name": "plugin: linkedin", "path": "plugins/bot-linkedin" },
+    { "name": "plugin: x", "path": "plugins/bot-x" }
   ],
   "settings": {
     "files.exclude": {

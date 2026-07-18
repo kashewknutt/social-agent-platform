@@ -19,7 +19,7 @@ profiles:
     open: .
     run_hint: 'python -m orchestrator_app.main  # Boot Instagram in the UI'
   fleet:
-    description: Platform + Instagram + LinkedIn/X stubs (recommended)
+    description: Platform + Instagram + LinkedIn + X plugins
     packages:
     - agent-sdk
     - orchestrator
@@ -31,7 +31,7 @@ profiles:
 packages:
   agent-sdk:
     path: agent-sdk
-    kind: plugin
+    kind: library
     repo: https://github.com/kashewknutt/agent-sdk.git
     branch: main
     description: Shared bot contract and control runtime
@@ -55,22 +55,26 @@ packages:
     port: 7411
     start_command: python -m ig_agent.api
   bot-linkedin:
-    path: bot-linkedin
-    kind: core
-    repo: null
+    path: plugins/bot-linkedin
+    kind: plugin
+    repo: https://github.com/kashewknutt/linkedin-bot.git
+    branch: main
     depends_on:
     - agent-sdk
-    description: LinkedIn bot stub
+    description: LinkedIn bot stub (plugin)
+    env_example: plugins/bot-linkedin/.env.example
     bot_id: linkedin
     port: 7412
     start_command: python -m linkedin_bot.api
   bot-x:
-    path: bot-x
-    kind: core
-    repo: null
+    path: plugins/bot-x
+    kind: plugin
+    repo: https://github.com/kashewknutt/x-bot.git
+    branch: main
     depends_on:
     - agent-sdk
-    description: X bot stub
+    description: X bot stub (plugin)
+    env_example: plugins/bot-x/.env.example
     bot_id: x
     port: 7413
     start_command: python -m x_bot.api
