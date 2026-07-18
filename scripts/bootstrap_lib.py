@@ -333,6 +333,7 @@ def bootstrap(
         pip_install_editable(py, paths)
         if "bot-instagram" in selected:
             print("-> Installing Playwright Chromium for Instagram bot")
+            run([str(py), "-m", "pip", "install", "playwright"], check=False)
             run([str(py), "-m", "playwright", "install", "chromium"], check=False)
 
     profile_meta = manifest["profiles"].get(profile or "fleet", {})
