@@ -9,13 +9,40 @@ node_modules/
 *.log
 .DS_Store
 
-# Plugin clones (fetched by setup — not vendored in git)
-plugins/bot-*/
+# Other plugin clones (fetched by setup — not vendored in git)
+plugins/bot-linkedin/
+plugins/bot-x/
 !plugins/.gitkeep
+
+# Instagram plugin is vendored here when sibling-repo push is unavailable.
+# Keep secrets / browser profiles / runtime artifacts ignored.
+plugins/bot-instagram/.env
+plugins/bot-instagram/.venv/
+plugins/bot-instagram/**/__pycache__/
+plugins/bot-instagram/**/*.egg-info/
+plugins/bot-instagram/data/browser-profile/
+plugins/bot-instagram/data/chrome-profile/
+plugins/bot-instagram/data/usage_log.json
+plugins/bot-instagram/data/interactions.db
+plugins/bot-instagram/data/runs/
+plugins/bot-instagram/data/raw/*.json
+!plugins/bot-instagram/data/raw/sample_scraped.json
+plugins/bot-instagram/data/filtered/*.json
+!plugins/bot-instagram/data/filtered/.gitkeep
+plugins/bot-instagram/data/media/
+plugins/bot-instagram/reports/*.md
+!plugins/bot-instagram/reports/.gitkeep
+
+# agent-sdk is vendored with the engage flag when sibling-repo push is unavailable.
+agent-sdk/.venv/
+agent-sdk/**/__pycache__/
+agent-sdk/**/*.egg-info/
+agent-sdk/.pytest_cache/
 
 **/data/browser-profile/
 **/data/chrome-profile/
 **/data/usage_log.json
+**/data/interactions.db
 **/data/runs/
 **/data/raw/*.json
 !**/data/raw/sample_scraped.json
@@ -23,6 +50,3 @@ plugins/bot-*/
 **/data/media/
 **/reports/*.md
 session.json
-
-# Cloned from https://github.com/kashewknutt/agent-sdk (not vendored)
-agent-sdk/

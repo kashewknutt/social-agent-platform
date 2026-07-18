@@ -1,0 +1,27 @@
+[project]
+name = "bot-instagram"
+version = "0.1.0"
+description = "Instagram trend observation bot powered by Kimi (Moonshot AI)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # Prefer: pip install -e ../agent-sdk  (cloned by platform setup)
+    # Or: pip install "agent-sdk @ git+https://github.com/kashewknutt/agent-sdk.git"
+    "browser-use>=0.1.40",
+    "openai>=1.0.0",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.0.0",
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+]
+
+[project.scripts]
+ig-agent = "main:main"
+ig-bot-serve = "ig_agent.api:serve"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

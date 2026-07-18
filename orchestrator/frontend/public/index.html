@@ -56,13 +56,19 @@
       }
       .panel-head { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
       .panel-head h3 { font-family: var(--font-display); font-size: 2rem; font-weight: 400; margin: 0; }
-      .controls { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+      .controls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
       .controls button {
         border: 1px solid var(--line); background: #fff; border-radius: 999px;
         padding: 0.55rem 0.95rem; cursor: pointer;
       }
       .controls button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
       .controls button:disabled { opacity: 0.45; }
+      .toggle {
+        display: inline-flex; align-items: center; gap: 0.45rem;
+        border: 1px solid var(--line); background: #fff; border-radius: 999px;
+        padding: 0.45rem 0.85rem; font-size: 0.9rem;
+      }
+      .toggle input { accent-color: var(--accent); }
       .grid-2 { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 1rem; margin-top: 1rem; }
       @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
       .logs {
@@ -84,6 +90,28 @@
       .state.error { color: var(--danger); }
       .state.offline, .state.stopped { color: var(--idle); }
       h4 { margin: 0 0 0.55rem; font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); }
+      .usage-row { display: flex; flex-wrap: wrap; gap: 0.65rem; margin: 0.75rem 0 0; font-size: 0.85rem; color: var(--ink-soft); }
+      .usage-row span { border: 1px solid var(--line); border-radius: 10px; padding: 0.25rem 0.55rem; background: rgba(255,255,255,0.55); }
+      .ix-panel { margin-top: 1rem; }
+      .ix-list { display: grid; gap: 0.75rem; }
+      .ix-item {
+        border: 1px solid var(--line); border-radius: 16px; padding: 0.85rem 1rem;
+        background: rgba(255,255,255,0.65);
+      }
+      .ix-item header { display: flex; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+      .ix-item .kind { font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.8rem; }
+      .ix-item .status { font-size: 0.85rem; }
+      .ix-item .status.proposed { color: var(--warn); }
+      .ix-item .status.approved, .ix-item .status.done { color: var(--ok); }
+      .ix-item .status.rejected, .ix-item .status.failed, .ix-item .status.skipped { color: var(--danger); }
+      .ix-item .status.executing { color: var(--accent-deep); }
+      .ix-meta { font-size: 0.82rem; color: var(--ink-soft); margin: 0.35rem 0; }
+      .ix-item textarea { width: 100%; min-height: 72px; border: 1px solid var(--line); border-radius: 12px; padding: 0.55rem 0.7rem; margin: 0.4rem 0; }
+      .ix-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+      .ix-actions button { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 0.4rem 0.75rem; cursor: pointer; font-size: 0.85rem; }
+      .ix-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+      .badge-auto { font-size: 0.72rem; color: var(--accent-deep); border: 1px solid rgba(15,118,110,0.35); border-radius: 8px; padding: 0.1rem 0.4rem; }
+      .badge-hitl { font-size: 0.72rem; color: var(--warn); border: 1px solid rgba(180,83,9,0.35); border-radius: 8px; padding: 0.1rem 0.4rem; }
     </style>
   </head>
   <body>
@@ -97,6 +125,9 @@
       let selectedId = null;
       let logs = [];
       let direction = null;
+      let interactions = [];
+      let usage = null;
+      let engage = true;
       let error = "";
 
       async function api(path, options = {}) {
@@ -115,6 +146,12 @@
         return bot?.status?.state || bot?.health?.state || "offline";
       }
 
+      function esc(s) {
+        return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+          "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+        }[c]));
+      }
+
       async function refresh() {
         try {
           const data = await api("/api/bots");
@@ -131,12 +168,16 @@
       async function refreshDetail() {
         if (!selectedId) return;
         try {
-          const [logData, dir] = await Promise.all([
+          const selectedBot = bots.find((b) => b.id === selectedId);
+          const [logData, dir, ixData] = await Promise.all([
             api(`/api/bots/${selectedId}/logs?tail=120`).catch(() => ({ lines: [] })),
             api(`/api/bots/${selectedId}/direction`).catch(() => null),
+            api(`/api/bots/${selectedId}/interactions?limit=100`).catch(() => ({ interactions: [], usage: null })),
           ]);
           logs = logData.lines || [];
           direction = dir;
+          interactions = ixData.interactions || [];
+          usage = ixData.usage || selectedBot?.status?.usage || null;
         } catch (e) {
           error = e.message;
         }
@@ -152,22 +193,70 @@
         }
       }
 
+      function usageBlock(u, statusUsage) {
+        const src = u || statusUsage;
+        if (!src) return "";
+        const parts = [];
+        if (src.sessions_remaining != null) parts.push(`sessions ${src.sessions_remaining}`);
+        if (src.likes_remaining != null) parts.push(`likes ${src.likes ?? 0}/${src.max_likes_per_day ?? "?"} (${src.likes_remaining} left)`);
+        if (src.follows_remaining != null) parts.push(`follows ${src.follows ?? 0}/${src.max_follows_per_day ?? "?"} (${src.follows_remaining} left)`);
+        if (src.comments_remaining != null) parts.push(`comments ${src.comments ?? 0}/${src.max_comments_per_day ?? "?"}`);
+        if (src.dms_remaining != null) parts.push(`dms ${src.dms ?? 0}/${src.max_dms_per_day ?? "?"}`);
+        if (src.posts_remaining != null) parts.push(`posts ${src.posts ?? 0}/${src.max_posts_per_day ?? "?"}`);
+        if (!parts.length) return "";
+        return `<div class="usage-row">${parts.map((p) => `<span>${esc(p)}</span>`).join("")}</div>`;
+      }
+
+      function renderInteraction(ix) {
+        const isHitl = !ix.auto;
+        const editable = isHitl && (ix.status === "proposed" || ix.status === "approved");
+        const text = ix.final_text || ix.draft_text || "";
+        const target = ix.post_url || ix.profile_url || ix.username || "—";
+        return `
+          <article class="ix-item" data-id="${esc(ix.id)}">
+            <header>
+              <div>
+                <span class="kind">${esc(ix.kind)}</span>
+                ${ix.auto ? '<span class="badge-auto">auto</span>' : '<span class="badge-hitl">HITL</span>'}
+              </div>
+              <span class="status ${esc(ix.status)}">${esc(ix.status)}</span>
+            </header>
+            <div class="ix-meta">${esc(target)}${ix.username ? ` · @${esc(ix.username)}` : ""}</div>
+            ${isHitl ? `<textarea data-draft ${editable ? "" : "disabled"}>${esc(text)}</textarea>` : `<div class="ix-meta">${ix.status === "done" ? "Executed" : ix.status === "failed" ? esc(ix.error || "failed") : "Queued for auto execute"}</div>`}
+            ${ix.error && ix.status !== "rejected" ? `<div class="ix-meta" style="color:var(--danger)">${esc(ix.error)}</div>` : ""}
+            <div class="ix-actions">
+              ${isHitl && ix.status === "proposed" ? `
+                <button class="primary" data-ix="approve">Approve</button>
+                <button data-ix="skip">Skip</button>
+              ` : ""}
+              ${isHitl && ix.status === "approved" ? `
+                <button class="primary" data-ix="execute">Execute</button>
+                <button data-ix="skip">Skip</button>
+              ` : ""}
+              ${ix.auto ? `<span class="ix-meta">${ix.status === "done" ? "auto complete" : ix.status === "failed" ? "auto failed" : ix.status === "proposed" ? "will auto-run when engage is live" : esc(ix.status)}</span>` : ""}
+            </div>
+          </article>
+        `;
+      }
+
       function render() {
         const selected = bots.find((b) => b.id === selectedId);
         const state = stateOf(selected);
         const reachable = Boolean(selected?.health?.reachable);
         const status = selected?.status;
+        const hitl = interactions.filter((i) => !i.auto);
+        const autos = interactions.filter((i) => i.auto);
         app.innerHTML = `
           <h1 class="brand">Fleet Control</h1>
           <p class="lede">Watch every observation bot, steer its direction, and pause a run before it drifts.</p>
-          ${error ? `<div class="error-banner">${error}</div>` : ""}
+          ${error ? `<div class="error-banner">${esc(error)}</div>` : ""}
           <section class="fleet">
             ${bots.map((bot) => `
               <button class="bot-chip ${bot.id === selectedId ? "active" : ""}" data-id="${bot.id}">
-                <h2>${bot.name}</h2>
+                <h2>${esc(bot.name)}</h2>
                 <div class="meta">
                   <span class="state ${stateOf(bot)}">${stateOf(bot)}</span>
-                  <span>${bot.status?.current_step || bot.status?.last_action || "offline"}</span>
+                  <span>${esc(bot.status?.current_step || bot.status?.last_action || "offline")}</span>
                 </div>
               </button>
             `).join("")}
@@ -176,14 +265,19 @@
             <section class="panel">
               <div class="panel-head">
                 <div>
-                  <h3>${selected.name}</h3>
+                  <h3>${esc(selected.name)}</h3>
                   <p class="meta">
                     <span class="state ${state}">${state}</span>
-                    <span>${status?.current_step || status?.last_action || "waiting"}</span>
+                    <span>${esc(status?.current_step || status?.last_action || "waiting")}</span>
                     ${status?.usage ? `<span>${status.usage.sessions_remaining} sessions left</span>` : ""}
                   </p>
+                  ${usageBlock(usage, status?.usage)}
                 </div>
                 <div class="controls">
+                  <label class="toggle" title="Propose engagement after research; live auto like/follow when not sample/offline">
+                    <input type="checkbox" id="engage-toggle" ${engage ? "checked" : ""} />
+                    Engage
+                  </label>
                   <button data-act="boot">Boot API</button>
                   <button class="primary" data-act="once" ${!reachable ? "disabled" : ""}>Run once</button>
                   <button data-act="daemon" ${!reachable ? "disabled" : ""}>Daemon</button>
@@ -196,22 +290,41 @@
                 <div>
                   <h4>Live trail</h4>
                   <pre class="logs">${logs.length
-                    ? logs.map((l) => `${(l.ts || "").slice(11, 19)}  ${l.step || "-"}  ${l.message}`).join("\n")
+                    ? logs.map((l) => `${(l.ts || "").slice(11, 19)}  ${l.step || "-"}  ${esc(l.message)}`).join("\n")
                     : (reachable ? "No events yet." : "Bot API offline — click Boot API.")}</pre>
                   <h4 style="margin-top:1rem">Artifacts</h4>
-                  ${(status?.artifacts || []).map((a) => `<div><strong>${a.kind}</strong> <code>${a.path}</code></div>`).join("") || "<span>None yet</span>"}
+                  ${(status?.artifacts || []).map((a) => `<div><strong>${esc(a.kind)}</strong> <code>${esc(a.path)}</code></div>`).join("") || "<span>None yet</span>"}
                 </div>
                 <div>
                   <h4>Direction</h4>
                   ${direction ? `
                     <form id="dir-form">
-                      <div class="field"><label>Goals</label><textarea name="goals">${direction.goals || ""}</textarea></div>
-                      <div class="field"><label>Hashtags (one per line)</label><textarea name="hashtags">${(direction.competitor_hashtags || []).join("\n")}</textarea></div>
-                      <div class="field"><label>Content pillars (one per line)</label><textarea name="pillars">${(direction.content_pillars || []).join("\n")}</textarea></div>
-                      <div class="field"><label>Constraints</label><textarea name="constraints">${direction.constraints || ""}</textarea></div>
+                      <div class="field"><label>Goals</label><textarea name="goals">${esc(direction.goals || "")}</textarea></div>
+                      <div class="field"><label>Hashtags (one per line)</label><textarea name="hashtags">${esc((direction.competitor_hashtags || []).join("\n"))}</textarea></div>
+                      <div class="field"><label>Content pillars (one per line)</label><textarea name="pillars">${esc((direction.content_pillars || []).join("\n"))}</textarea></div>
+                      <div class="field"><label>Constraints</label><textarea name="constraints">${esc(direction.constraints || "")}</textarea></div>
                       <div class="controls"><button class="primary" type="submit" ${!reachable ? "disabled" : ""}>Save direction</button></div>
                     </form>
                   ` : `<p>Direction unavailable until the bot API is up.</p>`}
+                </div>
+              </div>
+              <div class="ix-panel">
+                <div class="panel-head" style="margin-bottom:0.75rem">
+                  <h4 style="margin:0">Interactions</h4>
+                  <div class="controls">
+                    <button data-act="propose" ${!reachable ? "disabled" : ""}>Propose</button>
+                    <button data-act="exec-approved" ${!reachable ? "disabled" : ""}>Execute approved</button>
+                  </div>
+                </div>
+                <p class="meta" style="margin:0 0 0.75rem">
+                  Auto: ${autos.filter((a) => a.status === "done").length} done /
+                  ${autos.filter((a) => a.status === "failed").length} failed /
+                  ${autos.filter((a) => a.status === "proposed").length} queued ·
+                  HITL: ${hitl.filter((a) => a.status === "proposed").length} proposed /
+                  ${hitl.filter((a) => a.status === "approved").length} approved
+                </p>
+                <div class="ix-list">
+                  ${interactions.length ? interactions.map(renderInteraction).join("") : `<p class="meta">No interactions yet. Run once with Engage on, or click Propose.</p>`}
                 </div>
               </div>
             </section>
@@ -221,20 +334,81 @@
         app.querySelectorAll(".bot-chip").forEach((el) => {
           el.onclick = () => { selectedId = el.dataset.id; refresh(); };
         });
-        const controls = app.querySelector(".controls");
+        const engageEl = app.querySelector("#engage-toggle");
+        if (engageEl) {
+          engageEl.onchange = () => { engage = engageEl.checked; };
+        }
+        const controls = app.querySelector(".panel-head .controls");
         if (controls) {
           controls.onclick = (ev) => {
             const btn = ev.target.closest("button[data-act]");
             if (!btn || !selected) return;
             const actName = btn.dataset.act;
             if (actName === "boot") return act(() => api(`/api/bots/${selected.id}/process/start`, { method: "POST" }));
-            if (actName === "once") return act(() => api(`/api/bots/${selected.id}/run`, { method: "POST", body: JSON.stringify({ mode: "once", sample: true, offline: true }) }));
-            if (actName === "daemon") return act(() => api(`/api/bots/${selected.id}/run`, { method: "POST", body: JSON.stringify({ mode: "daemon" }) }));
+            if (actName === "once") return act(() => api(`/api/bots/${selected.id}/run`, {
+              method: "POST",
+              body: JSON.stringify({ mode: "once", sample: true, offline: true, engage }),
+            }));
+            if (actName === "daemon") return act(() => api(`/api/bots/${selected.id}/run`, {
+              method: "POST",
+              body: JSON.stringify({ mode: "daemon", engage }),
+            }));
             if (actName === "pause") return act(() => api(`/api/bots/${selected.id}/pause`, { method: "POST" }));
             if (actName === "resume") return act(() => api(`/api/bots/${selected.id}/resume`, { method: "POST" }));
             if (actName === "stop") return act(() => api(`/api/bots/${selected.id}/stop`, { method: "POST" }));
           };
         }
+        const ixHead = app.querySelector(".ix-panel .controls");
+        if (ixHead && selected) {
+          ixHead.onclick = (ev) => {
+            const btn = ev.target.closest("button[data-act]");
+            if (!btn) return;
+            if (btn.dataset.act === "propose") {
+              return act(() => api(`/api/bots/${selected.id}/interactions/propose`, { method: "POST", body: "{}" }));
+            }
+            if (btn.dataset.act === "exec-approved") {
+              return act(() => api(`/api/bots/${selected.id}/interactions/execute-approved`, {
+                method: "POST",
+                body: JSON.stringify({ dry_run: false }),
+              }));
+            }
+          };
+        }
+        app.querySelectorAll(".ix-item").forEach((el) => {
+          const id = el.dataset.id;
+          el.querySelectorAll("button[data-ix]").forEach((btn) => {
+            btn.onclick = () => {
+              const draftEl = el.querySelector("textarea[data-draft]");
+              const text = draftEl ? draftEl.value : null;
+              if (btn.dataset.ix === "approve") {
+                return act(async () => {
+                  if (text != null) {
+                    await api(`/api/bots/${selected.id}/interactions/${id}`, {
+                      method: "PATCH",
+                      body: JSON.stringify({ draft_text: text, final_text: text }),
+                    });
+                  }
+                  await api(`/api/bots/${selected.id}/interactions/${id}/approve`, {
+                    method: "POST",
+                    body: JSON.stringify({ final_text: text }),
+                  });
+                });
+              }
+              if (btn.dataset.ix === "skip") {
+                return act(() => api(`/api/bots/${selected.id}/interactions/${id}/skip`, {
+                  method: "POST",
+                  body: JSON.stringify({ reason: "skipped in Fleet UI" }),
+                }));
+              }
+              if (btn.dataset.ix === "execute") {
+                return act(() => api(`/api/bots/${selected.id}/interactions/${id}/execute`, {
+                  method: "POST",
+                  body: JSON.stringify({ dry_run: false }),
+                }));
+              }
+            };
+          });
+        });
         const form = app.querySelector("#dir-form");
         if (form) {
           form.onsubmit = (e) => {
