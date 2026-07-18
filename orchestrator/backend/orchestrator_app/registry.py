@@ -66,6 +66,11 @@ class BotRegistry:
     def __init__(self, config: OrchestratorConfig) -> None:
         self.config = config
         self._by_id = {b.id: b for b in config.bots}
+        # Reuse one client; trust_env=False avoids corporate proxy / IPv6 stalls on Windows
+        self._client = httpx.AsyncClient(
+            timeout=httpx.Timeout(5.0, connect=0.5),
+            trust_env=False,
+        )
 
     def list_bots(self) -> list[BotEntry]:
         return list(self.config.bots)
@@ -75,39 +80,40 @@ class BotRegistry:
             raise KeyError(bot_id)
         return self._by_id[bot_id]
 
+    def _managed(self, bot: BotEntry) -> bool:
+        return bot.process is not None and bot.process.poll() is None
+
     async def proxy(self, bot_id: str, method: str, path: str, json_body: Any = None) -> Any:
         bot = self.get(bot_id)
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.request(
-                method,
-                f"{bot.url}{path}",
-                json=json_body,
+        response = await self._client.request(
+            method,
+            f"{bot.url}{path}",
+            json=json_body,
+        )
+        if response.status_code >= 400:
+            detail = response.text
+            try:
+                detail = response.json()
+            except Exception:
+                pass
+            raise httpx.HTTPStatusError(
+                f"{response.status_code}",
+                request=response.request,
+                response=response,
             )
-            if response.status_code >= 400:
-                detail = response.text
-                try:
-                    detail = response.json()
-                except Exception:
-                    pass
-                raise httpx.HTTPStatusError(
-                    f"{response.status_code}",
-                    request=response.request,
-                    response=response,
-                )
-            if response.status_code == 204 or not response.content:
-                return {"ok": True}
-            return response.json()
+        if response.status_code == 204 or not response.content:
+            return {"ok": True}
+        return response.json()
 
     async def health(self, bot_id: str) -> dict[str, Any]:
         bot = self.get(bot_id)
         try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
-                r = await client.get(f"{bot.url}/health")
-                if r.status_code == 200:
-                    data = r.json()
-                    data["reachable"] = True
-                    data["managed"] = bot.process is not None and bot.process.poll() is None
-                    return data
+            r = await self._client.get(f"{bot.url}/health")
+            if r.status_code == 200:
+                data = r.json()
+                data["reachable"] = True
+                data["managed"] = self._managed(bot)
+                return data
         except Exception as exc:
             return {
                 "ok": False,
@@ -115,9 +121,61 @@ class BotRegistry:
                 "bot_id": bot_id,
                 "state": "offline",
                 "error": str(exc),
-                "managed": bot.process is not None and bot.process.poll() is None,
+                "managed": self._managed(bot),
             }
-        return {"ok": False, "reachable": False, "bot_id": bot_id, "state": "offline"}
+        return {
+            "ok": False,
+            "reachable": False,
+            "bot_id": bot_id,
+            "state": "offline",
+            "managed": self._managed(bot),
+        }
+
+    async def snapshot(self, bot_id: str) -> dict[str, Any]:
+        """One round-trip status fetch used by the fleet UI."""
+        bot = self.get(bot_id)
+        managed = self._managed(bot)
+        try:
+            status = await self.proxy(bot_id, "GET", "/status")
+            health = {
+                "ok": True,
+                "reachable": True,
+                "bot_id": bot.id,
+                "state": status.get("state", "idle"),
+                "managed": managed,
+            }
+        except Exception as exc:
+            health = {
+                "ok": False,
+                "reachable": False,
+                "bot_id": bot.id,
+                "state": "offline",
+                "error": str(exc),
+                "managed": managed,
+            }
+            status = None
+        return {
+            "id": bot.id,
+            "name": bot.name,
+            "port": bot.port,
+            "path": str(bot.path),
+            "enabled": bot.enabled,
+            "url": bot.url,
+            "health": health,
+            "status": status,
+        }
+
+    def _resolve_python(self, bot: BotEntry) -> str:
+        """Prefer platform .venv, then bot .venv, then current interpreter."""
+        platform_root = Path(__file__).resolve().parents[3]
+        candidates = [
+            platform_root / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python"),
+            bot.path / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python"),
+        ]
+        for path in candidates:
+            if path.exists():
+                return str(path)
+        return sys.executable
 
     def start_bot_process(self, bot_id: str) -> dict[str, Any]:
         bot = self.get(bot_id)
@@ -129,15 +187,16 @@ class BotRegistry:
             raise RuntimeError(f"No start_command for {bot_id}")
         env = os.environ.copy()
         env["BOT_PORT"] = str(bot.port)
-        # Prefer bot venv python if present
-        venv_python = bot.path / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-        python = str(venv_python) if venv_python.exists() else sys.executable
-        cmd = bot.start_command.replace("python", python, 1) if bot.start_command.startswith("python") else bot.start_command
+        python = self._resolve_python(bot)
+        if bot.start_command.startswith("python"):
+            cmd = [python, *bot.start_command.split()[1:]]
+        else:
+            cmd = bot.start_command
         bot.process = subprocess.Popen(
             cmd,
             cwd=str(bot.path),
             env=env,
-            shell=True,
+            shell=isinstance(cmd, str),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )

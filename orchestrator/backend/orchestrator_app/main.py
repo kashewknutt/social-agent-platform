@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -38,28 +39,16 @@ def api_health() -> dict[str, Any]:
 
 @app.get("/api/bots")
 async def list_bots() -> dict[str, Any]:
-    items = []
-    for bot in registry.list_bots():
-        health = await registry.health(bot.id)
-        status = None
-        if health.get("reachable"):
-            try:
-                status = await registry.proxy(bot.id, "GET", "/status")
-            except Exception as exc:
-                status = {"state": "error", "last_error": str(exc)}
-        items.append(
-            {
-                "id": bot.id,
-                "name": bot.name,
-                "port": bot.port,
-                "path": str(bot.path),
-                "enabled": bot.enabled,
-                "url": bot.url,
-                "health": health,
-                "status": status,
-            }
-        )
-    return {"bots": items}
+    items = await asyncio.gather(*[registry.snapshot(bot.id) for bot in registry.list_bots()])
+    return {"bots": list(items)}
+
+
+@app.get("/api/bots/{bot_id}")
+async def get_bot(bot_id: str) -> dict[str, Any]:
+    try:
+        return await registry.snapshot(bot_id)
+    except KeyError as exc:
+        raise HTTPException(404, f"Unknown bot {bot_id}") from exc
 
 
 @app.get("/api/bots/{bot_id}/status")
@@ -114,6 +103,12 @@ async def get_direction(bot_id: str) -> Any:
 async def put_direction(bot_id: str, request: Request) -> Any:
     body = await request.json()
     return await _proxy(bot_id, "PUT", "/direction", body)
+
+
+@app.get("/api/bots/{bot_id}/outputs")
+async def bot_outputs(bot_id: str, run_id: str | None = Query(default=None)) -> Any:
+    path = "/outputs" if not run_id else f"/outputs?run_id={run_id}"
+    return await _proxy(bot_id, "GET", path)
 
 
 @app.post("/api/bots/{bot_id}/process/start")
@@ -241,7 +236,10 @@ def index() -> FileResponse:
     static_dir = _static_dir()
     if not static_dir:
         raise HTTPException(404, "Frontend not found. Add frontend/public/index.html")
-    return FileResponse(static_dir / "index.html")
+    return FileResponse(
+        static_dir / "index.html",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 assets_dir = FRONTEND_DIST / "assets"

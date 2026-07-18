@@ -9,13 +9,13 @@ bots:
     start_command: python -m ig_agent.api
   - id: linkedin
     name: LinkedIn
-    path: ../bot-linkedin
+    path: ../plugins/bot-linkedin
     port: 7412
-    enabled: false
+    enabled: true
     start_command: python -m linkedin_bot.api
   - id: x
     name: X
-    path: ../bot-x
+    path: ../plugins/bot-x
     port: 7413
-    enabled: false
+    enabled: true
     start_command: python -m x_bot.api

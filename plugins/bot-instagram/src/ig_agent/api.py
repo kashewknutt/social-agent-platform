@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from agent_sdk.api import create_control_app
 
 from ig_agent.engage import execute_approved_interactions, execute_interaction
+from ig_agent.config import FILTERED_DIR, RAW_DIR, REPORTS_DIR
 from ig_agent.persist import (
     approve_interaction,
     get_interaction,
@@ -24,6 +25,66 @@ from ig_agent.safety import usage_snapshot
 
 controller = build_controller()
 app = create_control_app(controller, title="Instagram Bot Control API")
+
+
+def _file_outputs(run_id: str | None = None) -> dict[str, Any]:
+    """Build an Outputs payload from latest on-disk artifacts."""
+    import json
+    from datetime import datetime
+    from pathlib import Path
+
+    raw_files = sorted(RAW_DIR.glob("scraped_*.json"), key=lambda p: p.stat().st_mtime)
+    filtered_files = sorted(
+        (p for p in FILTERED_DIR.glob("filtered_*.json") if not p.name.endswith("_with_media.json")),
+        key=lambda p: p.stat().st_mtime,
+    )
+    reports = sorted(REPORTS_DIR.glob("Daily_Social_Dashboard_*.md"), key=lambda p: p.stat().st_mtime)
+
+    raw_path = raw_files[-1] if raw_files else None
+    filtered_path = filtered_files[-1] if filtered_files else None
+    report_path = reports[-1] if reports else None
+
+    raw_posts: list[dict[str, Any]] = []
+    filtered_posts: list[dict[str, Any]] = []
+    if raw_path and raw_path.exists():
+        try:
+            raw_posts = list(json.loads(raw_path.read_text(encoding="utf-8")).get("posts") or [])
+        except Exception:
+            raw_posts = []
+    if filtered_path and filtered_path.exists():
+        try:
+            filtered_posts = list(json.loads(filtered_path.read_text(encoding="utf-8")).get("posts") or [])
+        except Exception:
+            filtered_posts = []
+
+    report = None
+    if report_path and report_path.exists():
+        report = {
+            "path": str(report_path),
+            "generated_at": datetime.fromtimestamp(report_path.stat().st_mtime).isoformat(),
+            "body": report_path.read_text(encoding="utf-8"),
+        }
+
+    run = None
+    if filtered_path or report_path or raw_path:
+        run = {
+            "run_id": run_id or (filtered_path.stem if filtered_path else "latest"),
+            "status": "completed",
+            "started_at": None,
+            "finished_at": report["generated_at"] if report else None,
+            "raw_path": str(raw_path) if raw_path else None,
+            "filtered_path": str(filtered_path) if filtered_path else None,
+            "report_path": str(report_path) if report_path else None,
+        }
+
+    return {
+        "ok": True,
+        "run": run,
+        "runs": [run] if run else [],
+        "posts": {"raw": raw_posts, "filtered": filtered_posts, "media": []},
+        "notes": [],
+        "report": report,
+    }
 
 
 class InteractionUpdate(BaseModel):
@@ -47,6 +108,12 @@ class ProposeBody(BaseModel):
 class ExecuteBody(BaseModel):
     dry_run: bool = False
     ids: list[str] = Field(default_factory=list)
+
+
+@app.get("/outputs")
+def outputs(run_id: str | None = None) -> dict[str, Any]:
+    """Latest pipeline artifacts for the Fleet Outputs panel."""
+    return _file_outputs(run_id)
 
 
 @app.get("/interactions")

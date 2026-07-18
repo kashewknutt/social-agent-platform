@@ -12,396 +12,711 @@
     />
     <style>
       :root {
-        --ink: #12201c;
-        --ink-soft: #3a4a44;
-        --mist: #e7f0ea;
-        --paper: #f4faf6;
-        --panel: rgba(255, 255, 255, 0.72);
-        --line: rgba(18, 32, 28, 0.12);
-        --accent: #0f766e;
-        --accent-deep: #115e59;
-        --warn: #b45309;
-        --danger: #b91c1c;
-        --ok: #15803d;
-        --idle: #64748b;
-        --shadow: 0 18px 50px rgba(18, 32, 28, 0.08);
-        --font-display: "Instrument Serif", Georgia, serif;
-        --font-body: "DM Sans", "Segoe UI", sans-serif;
+        --bg: #f7f5ff;
+        --surface: #ffffff;
+        --surface-soft: #faf8ff;
+        --ink: #211a35;
+        --muted: #7a7195;
+        --line: #e5e0f2;
+        --accent: #7c5cfc;
+        --accent-light: #e9e3ff;
+        --accent-ink: #ffffff;
+        --ok: #1ea885;
+        --warn: #d08c00;
+        --danger: #d9404a;
+        --idle: #8c8aa0;
+        --track: #ede9f9;
+        --log-bg: #1f1a2e;
+        --log-fg: #e5e0f2;
+        --font: "DM Sans", "Segoe UI", system-ui, sans-serif;
+        --display: "Instrument Serif", Georgia, serif;
       }
       * { box-sizing: border-box; }
+      html, body { height: 100%; }
       body {
         margin: 0;
         color: var(--ink);
-        font-family: var(--font-body);
-        background:
-          radial-gradient(1200px 600px at 10% -10%, #c7e7d8 0%, transparent 55%),
-          radial-gradient(900px 500px at 100% 0%, #d9e7f2 0%, transparent 50%),
-          linear-gradient(180deg, var(--paper), var(--mist));
+        font-family: var(--font);
+        background: var(--bg);
+        line-height: 1.45;
       }
-      .app { width: min(1120px, calc(100% - 2.5rem)); margin: 0 auto; padding: 2.5rem 0 4rem; }
-      .brand { font-family: var(--font-display); font-size: clamp(2.8rem, 6vw, 4.4rem); line-height: 0.95; margin: 0; }
-      .lede { color: var(--ink-soft); max-width: 36rem; }
-      .fleet { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.85rem; margin: 1.5rem 0; }
-      @media (max-width: 860px) { .fleet { grid-template-columns: 1fr; } }
-      .bot-chip {
-        border: 1px solid var(--line); background: var(--panel); border-radius: 18px;
-        padding: 1rem; text-align: left; cursor: pointer; box-shadow: var(--shadow);
-      }
-      .bot-chip.active { border-color: var(--accent); background: #fff; }
-      .bot-chip h2 { margin: 0 0 0.35rem; font-size: 1.15rem; }
-      .meta { color: var(--ink-soft); font-size: 0.88rem; display: flex; gap: 0.75rem; flex-wrap: wrap; }
-      .panel {
-        border: 1px solid var(--line); background: var(--panel); border-radius: 24px;
-        padding: 1.25rem; box-shadow: var(--shadow);
-      }
-      .panel-head { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
-      .panel-head h3 { font-family: var(--font-display); font-size: 2rem; font-weight: 400; margin: 0; }
-      .controls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
-      .controls button {
-        border: 1px solid var(--line); background: #fff; border-radius: 999px;
-        padding: 0.55rem 0.95rem; cursor: pointer;
-      }
-      .controls button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-      .controls button:disabled { opacity: 0.45; }
-      .toggle {
+      .wrap { width: min(1120px, calc(100% - 2rem)); margin: 0 auto; padding: 2rem 0 3rem; }
+      header { margin-bottom: 1.5rem; }
+      .brand { font-family: var(--display); font-size: clamp(2.4rem, 6vw, 3.2rem); margin: 0; font-weight: 400; }
+      .sub { margin: 0.25rem 0 0; color: var(--muted); font-size: 0.95rem; }
+      .top-bar { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1.5rem; }
+      .pulse {
         display: inline-flex; align-items: center; gap: 0.45rem;
-        border: 1px solid var(--line); background: #fff; border-radius: 999px;
-        padding: 0.45rem 0.85rem; font-size: 0.9rem;
+        font-size: 0.75rem; color: var(--muted); font-weight: 500; letter-spacing: 0.03em;
       }
-      .toggle input { accent-color: var(--accent); }
-      .grid-2 { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 1rem; margin-top: 1rem; }
-      @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+      .pulse .dot {
+        width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--ok);
+        box-shadow: 0 0 0 0 rgba(30, 168, 133, 0.35); animation: beat 1.5s infinite;
+      }
+      .pulse.busy .dot { background: var(--accent); }
+      @keyframes beat { 0% { transform: scale(1); } 50% { transform: scale(1.3); } 100% { transform: scale(1); } }
+
+      .fleet { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-bottom: 1.25rem; }
+      @media (max-width: 800px) { .fleet { grid-template-columns: 1fr; } }
+      .chip {
+        border: 1px solid var(--line); background: var(--surface); border-radius: 16px;
+        padding: 1rem; text-align: left; cursor: pointer; transition: all 0.15s ease;
+      }
+      .chip:hover { border-color: #cbbdf7; transform: translateY(-1px); }
+      .chip.active { border-color: var(--accent); background: var(--surface-soft); box-shadow: 0 8px 28px rgba(124, 92, 252, 0.1); }
+      .chip h2 { margin: 0 0 0.4rem; font-size: 1.05rem; font-weight: 600; }
+      .chip .meta { display: flex; gap: 0.55rem; flex-wrap: wrap; font-size: 0.78rem; color: var(--muted); }
+
+      .panel {
+        background: var(--surface); border: 1px solid var(--line); border-radius: 18px;
+        padding: 1.25rem; box-shadow: 0 8px 24px rgba(124, 92, 252, 0.06);
+      }
+      .panel-head { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+      .panel-head h3 { font-family: var(--display); font-size: 1.6rem; margin: 0; font-weight: 400; }
+      .panel-head .hint { margin: 0.3rem 0 0; color: var(--muted); font-size: 0.85rem; display: flex; gap: 0.6rem; flex-wrap: wrap; }
+      .pill {
+        display: inline-flex; align-items: center; gap: 0.3rem;
+        padding: 0.12rem 0.5rem; border-radius: 999px; font-size: 0.7rem;
+        font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+        background: var(--track); color: var(--idle);
+      }
+      .pill.running, .pill.idle { background: #d8f6ee; color: var(--ok); }
+      .pill.paused { background: #fff4d6; color: var(--warn); }
+      .pill.error { background: #ffe6e7; color: var(--danger); }
+      .pill.offline, .pill.stopped { background: #f0eef5; color: var(--idle); }
+      .controls { display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center; }
+      button, .btn {
+        border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+        border-radius: 10px; padding: 0.5rem 0.8rem; font: inherit; font-size: 0.85rem; font-weight: 500;
+        cursor: pointer; transition: background 0.12s ease, opacity 0.12s ease;
+      }
+      button:hover:not(:disabled) { background: var(--surface-soft); border-color: #cbbdf7; }
+      button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+      button.primary:hover:not(:disabled) { background: #6a4be0; }
+      button.danger { border-color: #f5c3c6; color: var(--danger); }
+      button.danger:hover:not(:disabled) { background: #fff5f5; }
+      button:disabled { opacity: 0.4; cursor: not-allowed; }
+      button.busy { position: relative; }
+      button.busy::after {
+        content: ""; width: 0.65rem; height: 0.65rem; margin-left: 0.4rem;
+        border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+        display: inline-block; vertical-align: -0.12rem; animation: spin 0.75s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+
+      .options {
+        display: flex; flex-wrap: wrap; gap: 0.8rem 1.2rem; padding: 0.7rem 0.9rem;
+        background: var(--surface-soft); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 1rem;
+        font-size: 0.82rem; color: var(--muted);
+      }
+      .options label { display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer; }
+      .options input { accent-color: var(--accent); }
+
+      .steps {
+        display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.45rem; margin-bottom: 1rem;
+      }
+      @media (max-width: 800px) { .steps { grid-template-columns: 1fr 1fr; } }
+      .step {
+        border: 1px solid var(--line); border-radius: 10px; padding: 0.55rem 0.65rem;
+        background: var(--surface); font-size: 0.75rem; color: var(--muted);
+      }
+      .step strong { display: block; color: var(--ink); font-size: 0.78rem; margin-bottom: 0.15rem; font-weight: 600; }
+      .step.done { border-color: #b7e5d8; background: #f0faf6; }
+      .step.active { border-color: var(--accent); background: var(--accent-light); color: var(--ink); }
+      .step.fail { border-color: #f5c3c6; background: #fff5f5; }
+
+      .grid { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 1rem; }
+      @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+      h4 { margin: 0 0 0.5rem; font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
       .logs {
-        margin: 0; max-height: 280px; overflow: auto; padding: 0.9rem 1rem; border-radius: 16px;
-        background: #10231e; color: #d7ebe3; font-size: 0.82rem; white-space: pre-wrap;
+        margin: 0; min-height: 220px; max-height: 320px; overflow: auto;
+        padding: 0.85rem 0.95rem; border-radius: 12px; background: var(--log-bg);
+        color: var(--log-fg); font-family: "SFMono-Regular", Consolas, monospace; font-size: 0.75rem; line-height: 1.5;
+        white-space: pre-wrap;
       }
-      .field { display: grid; gap: 0.35rem; margin-bottom: 0.7rem; }
-      .field label { font-size: 0.85rem; color: var(--ink-soft); }
+      .artifacts { font-size: 0.82rem; color: var(--muted); }
+      .artifacts div { margin-bottom: 0.35rem; }
+      .artifacts code { font-family: "SFMono-Regular", Consolas, monospace; font-size: 0.72rem; color: var(--ink); word-break: break-all; background: var(--track); padding: 0.1rem 0.3rem; border-radius: 4px; }
+      .empty { color: var(--muted); font-size: 0.85rem; }
+      .field { display: grid; gap: 0.3rem; margin-bottom: 0.6rem; }
+      .field label { font-size: 0.75rem; color: var(--muted); font-weight: 500; }
       .field input, .field textarea {
-        width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 0.65rem 0.75rem;
+        width: 100%; border: 1px solid var(--line); border-radius: 10px;
+        padding: 0.55rem 0.65rem; font: inherit; font-size: 0.85rem; background: var(--surface);
       }
-      .error-banner {
-        margin: 1rem 0; padding: 0.75rem 1rem; border-radius: 14px;
-        background: rgba(185, 28, 28, 0.08); color: var(--danger);
+      .field textarea { min-height: 64px; resize: vertical; }
+      .banner {
+        margin: 0 0 0.9rem; padding: 0.65rem 0.85rem; border-radius: 10px; font-size: 0.85rem;
       }
-      .state { font-weight: 600; }
-      .state.running, .state.idle { color: var(--ok); }
-      .state.paused { color: var(--warn); }
-      .state.error { color: var(--danger); }
-      .state.offline, .state.stopped { color: var(--idle); }
-      h4 { margin: 0 0 0.55rem; font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); }
-      .usage-row { display: flex; flex-wrap: wrap; gap: 0.65rem; margin: 0.75rem 0 0; font-size: 0.85rem; color: var(--ink-soft); }
-      .usage-row span { border: 1px solid var(--line); border-radius: 10px; padding: 0.25rem 0.55rem; background: rgba(255,255,255,0.55); }
-      .ix-panel { margin-top: 1rem; }
-      .ix-list { display: grid; gap: 0.75rem; }
+      .banner.error { background: #fff1f2; color: var(--danger); border: 1px solid #f5c3c6; }
+      .banner.ok { background: #edf8f4; color: var(--ok); border: 1px solid #c3eada; }
+      .banner.info { background: #f2efff; color: #5a43c9; border: 1px solid #d8d0f8; }
+      .banner.warn { background: #fff9e6; color: var(--warn); border: 1px solid #f5deb3; }
+      .domain-card {
+        border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); padding: 0.85rem 1rem; margin-bottom: 1rem;
+      }
+      .domain-card h5 { margin: 0 0 0.4rem; font-size: 0.85rem; color: var(--muted); }
+      .domain-card p { margin: 0; font-size: 0.9rem; }
+      .domain-card .tags { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.45rem; }
+      .domain-card .tag { font-size: 0.72rem; background: var(--track); color: var(--muted); border-radius: 999px; padding: 0.15rem 0.5rem; }
+      .skeleton { opacity: 0.55; }
+
+      .outputs { margin-top: 1.25rem; padding-top: 1.1rem; border-top: 1px solid var(--line); }
+      .outputs-head {
+        display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem;
+        flex-wrap: wrap; margin-bottom: 0.85rem;
+      }
+      .outputs-head h4 { margin: 0; }
+      .outputs-meta { font-size: 0.8rem; color: var(--muted); }
+      .tabs { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-bottom: 0.85rem; }
+      .tabs button {
+        border-radius: 999px; padding: 0.35rem 0.75rem; font-size: 0.78rem;
+        background: transparent; border-color: transparent; color: var(--muted);
+      }
+      .tabs button.active { background: var(--accent-light); color: var(--accent); border-color: #d4c9ff; font-weight: 600; }
+      .run-select {
+        border: 1px solid var(--line); border-radius: 10px; padding: 0.4rem 0.55rem;
+        font: inherit; font-size: 0.8rem; background: var(--surface); color: var(--ink); max-width: 100%;
+      }
+      .post-list { display: grid; gap: 0.65rem; }
+      .post-row {
+        display: grid; grid-template-columns: auto 1fr auto; gap: 0.75rem; align-items: start;
+        padding: 0.7rem 0; border-bottom: 1px solid var(--line);
+      }
+      .post-row:last-child { border-bottom: 0; }
+      .score {
+        min-width: 2.4rem; height: 2.4rem; border-radius: 10px; display: grid; place-items: center;
+        font-weight: 700; font-size: 0.85rem; background: var(--accent-light); color: #5a43c9;
+      }
+      .post-row h5 { margin: 0 0 0.25rem; font-size: 0.9rem; font-weight: 600; }
+      .post-row p { margin: 0; font-size: 0.8rem; color: var(--muted); }
+      .post-row a { color: var(--accent); font-size: 0.78rem; text-decoration: none; word-break: break-all; }
+      .post-row a:hover { text-decoration: underline; }
+      .post-side { font-size: 0.72rem; color: var(--muted); text-align: right; white-space: nowrap; }
+      .report {
+        margin: 0; max-height: 420px; overflow: auto; padding: 1rem 1.1rem;
+        border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft);
+        font-size: 0.88rem; line-height: 1.55; white-space: pre-wrap;
+      }
+      .report h1, .report h2, .report h3 { font-family: var(--display); font-weight: 400; margin: 1rem 0 0.4rem; }
+      .report h1 { font-size: 1.45rem; margin-top: 0; }
+      .report h2 { font-size: 1.2rem; }
+      .note-block {
+        padding: 0.75rem 0; border-bottom: 1px solid var(--line); font-size: 0.85rem;
+      }
+      .note-block:last-child { border-bottom: 0; }
+      .note-block .url { font-size: 0.75rem; color: var(--accent); word-break: break-all; }
+      .ix-list { display: grid; gap: 0.65rem; }
       .ix-item {
-        border: 1px solid var(--line); border-radius: 16px; padding: 0.85rem 1rem;
-        background: rgba(255,255,255,0.65);
+        border: 1px solid var(--line); border-radius: 12px; padding: 0.75rem 0.85rem;
+        background: var(--surface-soft);
       }
-      .ix-item header { display: flex; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
-      .ix-item .kind { font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.8rem; }
-      .ix-item .status { font-size: 0.85rem; }
-      .ix-item .status.proposed { color: var(--warn); }
-      .ix-item .status.approved, .ix-item .status.done { color: var(--ok); }
-      .ix-item .status.rejected, .ix-item .status.failed, .ix-item .status.skipped { color: var(--danger); }
-      .ix-item .status.executing { color: var(--accent-deep); }
-      .ix-meta { font-size: 0.82rem; color: var(--ink-soft); margin: 0.35rem 0; }
-      .ix-item textarea { width: 100%; min-height: 72px; border: 1px solid var(--line); border-radius: 12px; padding: 0.55rem 0.7rem; margin: 0.4rem 0; }
-      .ix-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-      .ix-actions button { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 0.4rem 0.75rem; cursor: pointer; font-size: 0.85rem; }
-      .ix-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-      .badge-auto { font-size: 0.72rem; color: var(--accent-deep); border: 1px solid rgba(15,118,110,0.35); border-radius: 8px; padding: 0.1rem 0.4rem; }
-      .badge-hitl { font-size: 0.72rem; color: var(--warn); border: 1px solid rgba(180,83,9,0.35); border-radius: 8px; padding: 0.1rem 0.4rem; }
+      .ix-top { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+      .ix-item textarea {
+        width: 100%; min-height: 64px; margin-top: 0.35rem; border: 1px solid var(--line);
+        border-radius: 10px; padding: 0.5rem 0.65rem; font: inherit; font-size: 0.85rem;
+      }
     </style>
   </head>
   <body>
-    <div class="app" id="app">
-      <h1 class="brand">Fleet Control</h1>
-      <p class="lede">Loading fleet…</p>
+    <div class="wrap" id="app">
+      <div class="top-bar">
+        <header>
+          <h1 class="brand">Fleet Control</h1>
+          <p class="sub">Boot, observe, and steer every social agent.</p>
+        </header>
+        <div class="pulse" id="pulse"><span class="dot"></span><span id="pulse-text">Connecting…</span></div>
+      </div>
+      <p class="empty">Loading fleet…</p>
     </div>
     <script>
       const app = document.getElementById("app");
-      let bots = [];
-      let selectedId = null;
-      let logs = [];
-      let direction = null;
-      let interactions = [];
-      let usage = null;
-      let engage = true;
-      let error = "";
+      const state = {
+        bots: [],
+        selectedId: null,
+        logs: [],
+        direction: null,
+        outputs: null,
+        outputTab: "posts",
+        selectedRunId: null,
+        error: "",
+        notice: "",
+        busy: "",
+        loading: true,
+        sample: false,
+        offline: false,
+        multimodal: true,
+        engage: true,
+        interactions: [],
+        lastRefreshMs: 0,
+      };
+
+      const STEPS = ["boot", "ingest", "filter", "synthesize", "done"];
 
       async function api(path, options = {}) {
         const res = await fetch(path, {
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(options.headers || {}) },
           ...options,
         });
         const text = await res.text();
         let data = null;
         try { data = text ? JSON.parse(text) : null; } catch { data = { detail: text }; }
-        if (!res.ok) throw new Error(typeof data?.detail === "string" ? data.detail : text || res.statusText);
+        if (!res.ok) {
+          const detail = data?.detail ?? text ?? res.statusText;
+          throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+        }
         return data;
       }
 
-      function stateOf(bot) {
-        return bot?.status?.state || bot?.health?.state || "offline";
+      function selected() { return state.bots.find((b) => b.id === state.selectedId) || null; }
+      function botState(bot) { return bot?.status?.state || bot?.health?.state || "offline"; }
+
+      function stepStatus(bot, stepName) {
+        const st = botState(bot);
+        const cur = (bot?.status?.current_step || "").toLowerCase();
+        const last = (bot?.status?.last_action || "").toLowerCase();
+        const reachable = Boolean(bot?.health?.reachable);
+        if (stepName === "boot") return reachable ? "done" : (state.busy === "boot" ? "active" : "");
+        if (!reachable) return "";
+        if (st === "error" && ["ingest", "filter", "multimodal", "synthesize"].includes(stepName) && cur.includes(stepName)) return "fail";
+        if (st === "idle" && (last.includes("completed") || cur === "idle")) return "done";
+        if (st === "running" || st === "paused") {
+          if (cur.includes(stepName) || last.includes(stepName)) return "active";
+          const order = { ingest: 1, filter: 2, multimodal: 3, synthesize: 4 };
+          const curOrder = order[Object.keys(order).find((k) => cur.includes(k))] || 0;
+          if (order[stepName] && curOrder && order[stepName] < curOrder) return "done";
+        }
+        if (stepName === "done" && st === "idle" && last.includes("completed")) return "done";
+        if (stepName === "done" && (st === "running" || st === "paused")) return "active";
+        return "";
       }
 
-      function esc(s) {
-        return String(s ?? "").replace(/[&<>"']/g, (c) => ({
-          "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-        }[c]));
-      }
-
-      async function refresh() {
+      async function refreshFleet() {
+        const t0 = performance.now();
         try {
           const data = await api("/api/bots");
-          bots = data.bots || [];
-          if (!selectedId && bots[0]) selectedId = bots[0].id;
-          error = "";
+          state.bots = data.bots || [];
+          if (!state.selectedId && state.bots[0]) state.selectedId = state.bots[0].id;
+          state.error = "";
+          state.loading = false;
         } catch (e) {
-          error = e.message;
+          state.error = e.message;
+          state.loading = false;
         }
-        await refreshDetail();
+        state.lastRefreshMs = Math.round(performance.now() - t0);
+        await refreshDetail(false);
         render();
       }
 
-      async function refreshDetail() {
-        if (!selectedId) return;
+      async function refreshDetail(doRender = true) {
+        const bot = selected();
+        if (!bot) return;
         try {
-          const selectedBot = bots.find((b) => b.id === selectedId);
-          const [logData, dir, ixData] = await Promise.all([
-            api(`/api/bots/${selectedId}/logs?tail=120`).catch(() => ({ lines: [] })),
-            api(`/api/bots/${selectedId}/direction`).catch(() => null),
-            api(`/api/bots/${selectedId}/interactions?limit=100`).catch(() => ({ interactions: [], usage: null })),
+          const runQs = state.selectedRunId ? `?run_id=${encodeURIComponent(state.selectedRunId)}` : "";
+          const [snap, logData, dir, outputs, ixData] = await Promise.all([
+            api(`/api/bots/${bot.id}`).catch(() => null),
+            api(`/api/bots/${bot.id}/logs?tail=150`).catch(() => ({ lines: [] })),
+            api(`/api/bots/${bot.id}/direction`).catch(() => null),
+            api(`/api/bots/${bot.id}/outputs${runQs}`).catch(() => null),
+            api(`/api/bots/${bot.id}/interactions?limit=100`).catch(() => ({ interactions: [] })),
           ]);
-          logs = logData.lines || [];
-          direction = dir;
-          interactions = ixData.interactions || [];
-          usage = ixData.usage || selectedBot?.status?.usage || null;
+          if (snap) state.bots = state.bots.map((b) => (b.id === snap.id ? snap : b));
+          state.logs = logData.lines || [];
+          const active = document.activeElement;
+          const editing = active && active.closest && active.closest("#dir-form");
+          if (!editing) state.direction = dir;
+          state.outputs = outputs;
+          state.interactions = ixData?.interactions || [];
+          if (outputs?.run?.run_id && !state.selectedRunId) {
+            state.selectedRunId = outputs.run.run_id;
+          }
         } catch (e) {
-          error = e.message;
+          state.error = e.message;
         }
+        if (doRender) render();
       }
 
-      async function act(fn) {
+      function simpleMarkdown(md) {
+        const lines = String(md || "").split("\n");
+        const html = [];
+        for (const line of lines) {
+          if (line.startsWith("# ")) html.push(`<h1>${esc(line.slice(2))}</h1>`);
+          else if (line.startsWith("## ")) html.push(`<h2>${esc(line.slice(3))}</h2>`);
+          else if (line.startsWith("### ")) html.push(`<h3>${esc(line.slice(4))}</h3>`);
+          else if (line.trim() === "") html.push("<br/>");
+          else if (line.trim().startsWith("- ") || line.trim().startsWith("* "))
+            html.push(`<div>• ${esc(line.trim().slice(2))}</div>`);
+          else html.push(`<div>${esc(line)}</div>`);
+        }
+        return html.join("");
+      }
+
+      function renderOutputs() {
+        const out = state.outputs;
+        if (!out) {
+          return `<div class="outputs"><h4>Outputs</h4><p class="empty">Outputs API unavailable for this bot.</p></div>`;
+        }
+        if (!out.run) {
+          return `<div class="outputs"><h4>Outputs</h4><p class="empty">No completed runs in the database yet. Run research to populate SQLite.</p></div>`;
+        }
+        const run = out.run;
+        const filtered = out.posts?.filtered || [];
+        const raw = out.posts?.raw || [];
+        const notes = out.notes || [];
+        const report = out.report;
+        const runs = out.runs || [];
+
+        const postsHtml = filtered.length
+          ? `<div class="post-list">${filtered.map((p) => `
+              <div class="post-row">
+                <div class="score">${p.relevance_score ?? "—"}</div>
+                <div>
+                  <h5>${esc((p.caption || "Untitled post").slice(0, 120))}${((p.caption || "").length > 120) ? "…" : ""}</h5>
+                  <p>${esc(p.reason || p.adaptable_hook || "")}</p>
+                  ${p.post_url ? `<a href="${esc(p.post_url)}" target="_blank" rel="noreferrer">${esc(p.post_url)}</a>` : ""}
+                </div>
+                <div class="post-side">
+                  ${p.post_type ? esc(p.post_type) : ""}<br/>
+                  ${p.likes != null ? `${Number(p.likes).toLocaleString()} likes` : ""}
+                </div>
+              </div>`).join("")}</div>`
+          : `<p class="empty">No filtered posts for this run.${raw.length ? ` (${raw.length} raw ingested)` : ""}</p>`;
+
+        const reportHtml = report?.body
+          ? `<div class="report">${simpleMarkdown(report.body)}</div>`
+          : `<p class="empty">No dashboard markdown saved for this run.</p>`;
+
+        const notesHtml = notes.length
+          ? notes.map((n) => `
+              <div class="note-block">
+                <div class="url">${esc(n.post_url || "Media note")}</div>
+                <p>${esc(n.analysis || "")}</p>
+              </div>`).join("")
+          : `<p class="empty">No multimodal notes for this run.</p>`;
+
+        const body =
+          state.outputTab === "dashboard" ? reportHtml
+            : state.outputTab === "notes" ? notesHtml
+              : postsHtml;
+
+        return `
+          <div class="outputs">
+            <div class="outputs-head">
+              <div>
+                <h4>Outputs</h4>
+                <div class="outputs-meta">
+                  Run <code>${esc(run.run_id)}</code>
+                  · ${esc(run.status)}
+                  · ${filtered.length} filtered / ${raw.length} raw
+                  ${run.finished_at ? ` · ${(run.finished_at || "").slice(0, 19).replace("T", " ")}` : ""}
+                </div>
+              </div>
+              <select class="run-select" id="run-select">
+                ${runs.map((r) => `
+                  <option value="${esc(r.run_id)}" ${r.run_id === run.run_id ? "selected" : ""}>
+                    ${(r.started_at || "").slice(0, 19).replace("T", " ")} · ${r.status}${r.sample ? " · sample" : ""}
+                  </option>`).join("")}
+              </select>
+            </div>
+            <div class="tabs">
+              <button type="button" data-tab="posts" class="${state.outputTab === "posts" ? "active" : ""}">Filtered posts (${filtered.length})</button>
+              <button type="button" data-tab="dashboard" class="${state.outputTab === "dashboard" ? "active" : ""}">Dashboard</button>
+              <button type="button" data-tab="notes" class="${state.outputTab === "notes" ? "active" : ""}">Media notes (${notes.length})</button>
+            </div>
+            ${body}
+          </div>`;
+      }
+
+      async function act(name, fn) {
+        state.busy = name;
+        state.error = "";
+        state.notice = "";
+        render();
         try {
-          await fn();
-          await refresh();
+          const result = await fn();
+          state.notice = typeof result?.message === "string"
+            ? result.message
+            : (name === "live" ? "Run started — watch the live trail and Chromium window." : "Done.");
+          await refreshDetail(false);
+          await refreshFleet();
         } catch (e) {
-          error = e.message;
+          state.error = e.message;
+        } finally {
+          state.busy = "";
           render();
         }
       }
 
-      function usageBlock(u, statusUsage) {
-        const src = u || statusUsage;
-        if (!src) return "";
-        const parts = [];
-        if (src.sessions_remaining != null) parts.push(`sessions ${src.sessions_remaining}`);
-        if (src.likes_remaining != null) parts.push(`likes ${src.likes ?? 0}/${src.max_likes_per_day ?? "?"} (${src.likes_remaining} left)`);
-        if (src.follows_remaining != null) parts.push(`follows ${src.follows ?? 0}/${src.max_follows_per_day ?? "?"} (${src.follows_remaining} left)`);
-        if (src.comments_remaining != null) parts.push(`comments ${src.comments ?? 0}/${src.max_comments_per_day ?? "?"}`);
-        if (src.dms_remaining != null) parts.push(`dms ${src.dms ?? 0}/${src.max_dms_per_day ?? "?"}`);
-        if (src.posts_remaining != null) parts.push(`posts ${src.posts ?? 0}/${src.max_posts_per_day ?? "?"}`);
-        if (!parts.length) return "";
-        return `<div class="usage-row">${parts.map((p) => `<span>${esc(p)}</span>`).join("")}</div>`;
+      function runBody() {
+        return {
+          mode: "once",
+          sample: Boolean(state.sample),
+          offline: Boolean(state.offline),
+          multimodal: Boolean(state.multimodal),
+          engage: Boolean(state.engage) && !state.sample,
+        };
       }
 
-      function renderInteraction(ix) {
-        const isHitl = !ix.auto;
-        const editable = isHitl && (ix.status === "proposed" || ix.status === "approved");
-        const text = ix.final_text || ix.draft_text || "";
-        const target = ix.post_url || ix.profile_url || ix.username || "—";
-        return `
-          <article class="ix-item" data-id="${esc(ix.id)}">
-            <header>
-              <div>
-                <span class="kind">${esc(ix.kind)}</span>
-                ${ix.auto ? '<span class="badge-auto">auto</span>' : '<span class="badge-hitl">HITL</span>'}
+      function renderInteractions() {
+        const items = state.interactions || [];
+        const hitl = items.filter((i) => !i.auto);
+        const autos = items.filter((i) => i.auto);
+        const row = (ix) => {
+          const editable = !ix.auto && (ix.status === "proposed" || ix.status === "approved");
+          const text = ix.final_text || ix.draft_text || "";
+          const target = ix.post_url || ix.profile_url || ix.username || "—";
+          return `
+            <div class="ix-item" data-ix-id="${esc(ix.id)}">
+              <div class="ix-top">
+                <strong>${esc(ix.kind)}</strong>
+                <span class="pill ${esc(ix.status)}">${esc(ix.status)}</span>
+                <span class="empty">${ix.auto ? "auto" : "HITL"}</span>
               </div>
-              <span class="status ${esc(ix.status)}">${esc(ix.status)}</span>
-            </header>
-            <div class="ix-meta">${esc(target)}${ix.username ? ` · @${esc(ix.username)}` : ""}</div>
-            ${isHitl ? `<textarea data-draft ${editable ? "" : "disabled"}>${esc(text)}</textarea>` : `<div class="ix-meta">${ix.status === "done" ? "Executed" : ix.status === "failed" ? esc(ix.error || "failed") : "Queued for auto execute"}</div>`}
-            ${ix.error && ix.status !== "rejected" ? `<div class="ix-meta" style="color:var(--danger)">${esc(ix.error)}</div>` : ""}
-            <div class="ix-actions">
-              ${isHitl && ix.status === "proposed" ? `
-                <button class="primary" data-ix="approve">Approve</button>
-                <button data-ix="skip">Skip</button>
-              ` : ""}
-              ${isHitl && ix.status === "approved" ? `
-                <button class="primary" data-ix="execute">Execute</button>
-                <button data-ix="skip">Skip</button>
-              ` : ""}
-              ${ix.auto ? `<span class="ix-meta">${ix.status === "done" ? "auto complete" : ix.status === "failed" ? "auto failed" : ix.status === "proposed" ? "will auto-run when engage is live" : esc(ix.status)}</span>` : ""}
+              <div class="empty" style="margin:0.35rem 0">${esc(target)}</div>
+              ${!ix.auto ? `<textarea data-draft ${editable ? "" : "disabled"}>${esc(text)}</textarea>` : ""}
+              ${ix.error ? `<div class="banner error" style="margin:0.4rem 0">${esc(ix.error)}</div>` : ""}
+              <div class="controls" style="margin-top:0.4rem">
+                ${!ix.auto && ix.status === "proposed" ? `
+                  <button type="button" class="primary" data-ix="approve">Approve</button>
+                  <button type="button" data-ix="skip">Skip</button>` : ""}
+                ${!ix.auto && ix.status === "approved" ? `
+                  <button type="button" class="primary" data-ix="execute">Execute</button>
+                  <button type="button" data-ix="skip">Skip</button>` : ""}
+              </div>
+            </div>`;
+        };
+        return `
+          <div class="outputs" style="margin-top:1rem">
+            <div class="outputs-head">
+              <div>
+                <h4>Interactions</h4>
+                <div class="outputs-meta">
+                  Auto ${autos.filter((a) => a.status === "done").length} done /
+                  ${autos.filter((a) => a.status === "failed").length} failed /
+                  ${autos.filter((a) => a.status === "proposed").length} queued ·
+                  HITL ${hitl.filter((a) => a.status === "proposed").length} proposed /
+                  ${hitl.filter((a) => a.status === "approved").length} approved
+                </div>
+              </div>
+              <div class="controls">
+                <button type="button" data-act="propose" ${!selected()?.health?.reachable || state.busy ? "disabled" : ""}>Propose</button>
+                <button type="button" data-act="exec-approved" ${!selected()?.health?.reachable || state.busy ? "disabled" : ""}>Execute approved</button>
+              </div>
             </div>
-          </article>
-        `;
+            <div class="ix-list">
+              ${items.length ? items.map(row).join("") : `<p class="empty">No interactions yet. Run research with Engage on, or click Propose.</p>`}
+            </div>
+          </div>`;
+      }
+
+      function esc(s) {
+        return String(s).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
       }
 
       function render() {
-        const selected = bots.find((b) => b.id === selectedId);
-        const state = stateOf(selected);
-        const reachable = Boolean(selected?.health?.reachable);
-        const status = selected?.status;
-        const hitl = interactions.filter((i) => !i.auto);
-        const autos = interactions.filter((i) => i.auto);
-        app.innerHTML = `
-          <h1 class="brand">Fleet Control</h1>
-          <p class="lede">Watch every observation bot, steer its direction, and pause a run before it drifts.</p>
-          ${error ? `<div class="error-banner">${esc(error)}</div>` : ""}
-          <section class="fleet">
-            ${bots.map((bot) => `
-              <button class="bot-chip ${bot.id === selectedId ? "active" : ""}" data-id="${bot.id}">
-                <h2>${esc(bot.name)}</h2>
+        const bot = selected();
+        const st = botState(bot);
+        const reachable = Boolean(bot?.health?.reachable);
+        const status = bot?.status;
+        const dir = state.direction;
+        const pulseText = state.busy
+          ? `Working: ${state.busy}…`
+          : st === "running"
+            ? "Run in progress"
+            : `Ready · refresh ${state.lastRefreshMs || "—"}ms`;
+
+        const fleetHtml = state.loading
+          ? `<p class="empty skeleton">Loading fleet…</p>`
+          : `<section class="fleet">${state.bots.map((b) => `
+              <button class="chip ${b.id === state.selectedId ? "active" : ""}" data-select="${b.id}" type="button">
+                <h2>${b.name}</h2>
                 <div class="meta">
-                  <span class="state ${stateOf(bot)}">${stateOf(bot)}</span>
-                  <span>${esc(bot.status?.current_step || bot.status?.last_action || "offline")}</span>
+                  <span class="pill ${botState(b)}">${botState(b)}</span>
+                  <span>${b.health?.reachable ? "API up" : "API down"}</span>
+                  <span>${b.status?.current_step || b.status?.last_action || "—"}</span>
                 </div>
-              </button>
-            `).join("")}
-          </section>
-          ${!selected ? `<p>No bots registered.</p>` : `
-            <section class="panel">
-              <div class="panel-head">
-                <div>
-                  <h3>${esc(selected.name)}</h3>
-                  <p class="meta">
-                    <span class="state ${state}">${state}</span>
-                    <span>${esc(status?.current_step || status?.last_action || "waiting")}</span>
-                    ${status?.usage ? `<span>${status.usage.sessions_remaining} sessions left</span>` : ""}
-                  </p>
-                  ${usageBlock(usage, status?.usage)}
-                </div>
-                <div class="controls">
-                  <label class="toggle" title="Propose engagement after research; live auto like/follow when not sample/offline">
-                    <input type="checkbox" id="engage-toggle" ${engage ? "checked" : ""} />
-                    Engage
-                  </label>
-                  <button data-act="boot">Boot API</button>
-                  <button class="primary" data-act="once" ${!reachable ? "disabled" : ""}>Run once</button>
-                  <button data-act="daemon" ${!reachable ? "disabled" : ""}>Daemon</button>
-                  <button data-act="pause" ${!reachable || state !== "running" ? "disabled" : ""}>Pause</button>
-                  <button data-act="resume" ${!reachable || state !== "paused" ? "disabled" : ""}>Resume</button>
-                  <button data-act="stop" ${!reachable ? "disabled" : ""}>Stop</button>
-                </div>
-              </div>
-              <div class="grid-2">
-                <div>
-                  <h4>Live trail</h4>
-                  <pre class="logs">${logs.length
-                    ? logs.map((l) => `${(l.ts || "").slice(11, 19)}  ${l.step || "-"}  ${esc(l.message)}`).join("\n")
-                    : (reachable ? "No events yet." : "Bot API offline — click Boot API.")}</pre>
-                  <h4 style="margin-top:1rem">Artifacts</h4>
-                  ${(status?.artifacts || []).map((a) => `<div><strong>${esc(a.kind)}</strong> <code>${esc(a.path)}</code></div>`).join("") || "<span>None yet</span>"}
-                </div>
-                <div>
-                  <h4>Direction</h4>
-                  ${direction ? `
-                    <form id="dir-form">
-                      <div class="field"><label>Goals</label><textarea name="goals">${esc(direction.goals || "")}</textarea></div>
-                      <div class="field"><label>Hashtags (one per line)</label><textarea name="hashtags">${esc((direction.competitor_hashtags || []).join("\n"))}</textarea></div>
-                      <div class="field"><label>Content pillars (one per line)</label><textarea name="pillars">${esc((direction.content_pillars || []).join("\n"))}</textarea></div>
-                      <div class="field"><label>Constraints</label><textarea name="constraints">${esc(direction.constraints || "")}</textarea></div>
-                      <div class="controls"><button class="primary" type="submit" ${!reachable ? "disabled" : ""}>Save direction</button></div>
-                    </form>
-                  ` : `<p>Direction unavailable until the bot API is up.</p>`}
-                </div>
-              </div>
-              <div class="ix-panel">
-                <div class="panel-head" style="margin-bottom:0.75rem">
-                  <h4 style="margin:0">Interactions</h4>
-                  <div class="controls">
-                    <button data-act="propose" ${!reachable ? "disabled" : ""}>Propose</button>
-                    <button data-act="exec-approved" ${!reachable ? "disabled" : ""}>Execute approved</button>
-                  </div>
-                </div>
-                <p class="meta" style="margin:0 0 0.75rem">
-                  Auto: ${autos.filter((a) => a.status === "done").length} done /
-                  ${autos.filter((a) => a.status === "failed").length} failed /
-                  ${autos.filter((a) => a.status === "proposed").length} queued ·
-                  HITL: ${hitl.filter((a) => a.status === "proposed").length} proposed /
-                  ${hitl.filter((a) => a.status === "approved").length} approved
+              </button>`).join("")}</section>`;
+
+        const stepsHtml = !bot ? "" : `
+          <div class="steps">
+            ${[
+              ["boot", "Boot"],
+              ["ingest", "Ingest"],
+              ["filter", "Filter"],
+              ["multimodal", "Analyze"],
+              ["synthesize", "Synthesize"],
+              ["done", "Done"],
+            ].map(([id, label]) => {
+              const cls = stepStatus(bot, id);
+              return `<div class="step ${cls}"><strong>${label}</strong>${cls || "waiting"}</div>`;
+            }).join("")}
+          </div>`;
+
+        const domainHtml = (dir && bot?.id === "instagram") ? `
+          <div class="domain-card">
+            <h5>Domain focus</h5>
+            <p><strong>${esc(dir.brand_name || "Agency")}</strong> · ${esc(dir.business_type || "Software agency")} · ${esc(dir.region || "Global")}</p>
+            <div class="tags">
+              ${(dir.content_pillars || []).slice(0, 5).map((p) => `<span class="tag">${esc(p)}</span>`).join("")}
+              ${(dir.competitor_hashtags || []).slice(0, 5).map((h) => `<span class="tag">${esc(h)}</span>`).join("")}
+            </div>
+          </div>` : "";
+
+        const panelHtml = !bot ? `<p class="empty">No bots registered.</p>` : `
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h3>${bot.name}</h3>
+                <p class="hint">
+                  <span class="pill ${st}">${st}</span>
+                  <span>${status?.current_step || status?.last_action || "waiting"}</span>
+                  ${status?.usage ? ` · ${status.usage.sessions_remaining} sessions left` : ""}
+                  ${status?.last_error ? ` · ${status.last_error}` : ""}
                 </p>
-                <div class="ix-list">
-                  ${interactions.length ? interactions.map(renderInteraction).join("") : `<p class="meta">No interactions yet. Run once with Engage on, or click Propose.</p>`}
-                </div>
               </div>
-            </section>
-          `}
+              <div class="controls">
+                <button type="button" class="${state.busy === "boot" ? "busy" : ""}" data-act="boot" ${state.busy ? "disabled" : ""}>Boot API</button>
+                <button type="button" class="primary ${state.busy === "live" ? "busy" : ""}" data-act="live" ${state.busy || !reachable ? "disabled" : ""}>Run research</button>
+                <button type="button" data-act="pause" ${state.busy || !reachable || st !== "running" ? "disabled" : ""}>Pause</button>
+                <button type="button" data-act="resume" ${state.busy || !reachable || st !== "paused" ? "disabled" : ""}>Resume</button>
+                <button type="button" class="danger" data-act="stop" ${state.busy || !reachable || (st !== "running" && st !== "paused") ? "disabled" : ""}>Stop</button>
+              </div>
+            </div>
+
+            <div class="options">
+              <label><input type="checkbox" id="opt-sample" ${state.sample ? "checked" : ""} /> Use sample data (no login)</label>
+              <label><input type="checkbox" id="opt-offline" ${state.offline ? "checked" : ""} /> Offline heuristics</label>
+              <label><input type="checkbox" id="opt-multimodal" ${state.multimodal ? "checked" : ""} /> Analyze shortlisted media</label>
+              <label><input type="checkbox" id="opt-engage" ${state.engage && !state.sample ? "checked" : ""} ${state.sample ? "disabled" : ""} /> Engage after research</label>
+            </div>
+            ${!state.sample ? `<div class="banner info">Live research opens Chromium. Log into Instagram if asked — session is saved. Media analysis runs only on filtered top posts.</div>` : `<div class="banner info">Sample mode uses bundled JSON only — fast smoke test.</div>`}
+
+            ${stepsHtml}
+            ${domainHtml}
+
+            <div class="grid">
+              <div>
+                <h4>Live trail</h4>
+                <pre class="logs">${state.logs.length
+                  ? state.logs.map((l) => `${(l.ts || "").slice(11, 19)}  ${(l.step || "-").padEnd(11)}  ${l.message}`).join("\n")
+                  : (reachable ? "No events yet — click Run research." : "Bot API offline — click Boot API.")}</pre>
+                <h4 style="margin-top:0.9rem">Artifacts</h4>
+                <div class="artifacts">${(status?.artifacts || []).length
+                  ? status.artifacts.map((a) => `<div><strong>${a.kind}</strong><br/><code>${a.path}</code></div>`).join("")
+                  : `<span class="empty">None yet</span>`}</div>
+              </div>
+              <div>
+                <h4>Direction</h4>
+                ${state.direction ? `
+                  <form id="dir-form">
+                    <div class="field"><label>Brand name</label><input name="brand_name" value="${esc(dir.brand_name || "")}" /></div>
+                    <div class="field"><label>Business type</label><input name="business_type" value="${esc(dir.business_type || "")}" /></div>
+                    <div class="field"><label>Region</label><input name="region" value="${esc(dir.region || "")}" placeholder="e.g. India, US, Europe" /></div>
+                    <div class="field"><label>Goals</label><textarea name="goals">${esc(dir.goals || "")}</textarea></div>
+                    <div class="field"><label>Hashtags (one per line)</label><textarea name="hashtags">${esc((dir.competitor_hashtags || []).join("\n"))}</textarea></div>
+                    <div class="field"><label>Content pillars (one per line)</label><textarea name="pillars">${esc((dir.content_pillars || []).join("\n"))}</textarea></div>
+                    <div class="field"><label>Brand voice</label><textarea name="brand_voice">${esc(dir.brand_voice || "")}</textarea></div>
+                    <div class="field"><label>Constraints</label><textarea name="constraints">${esc(dir.constraints || "")}</textarea></div>
+                    <div class="controls"><button class="primary ${state.busy === "direction" ? "busy" : ""}" type="submit" ${state.busy || !reachable ? "disabled" : ""}>Save direction</button></div>
+                  </form>` : `<p class="empty">Direction unavailable until the bot API is up.</p>`}
+              </div>
+            </div>
+            ${bot.id === "instagram" ? renderOutputs() : ""}
+            ${bot.id === "instagram" ? renderInteractions() : ""}
+          </section>`;
+
+        app.innerHTML = `
+          <div class="top-bar">
+            <header>
+              <h1 class="brand">Fleet Control</h1>
+              <p class="sub">Boot, observe, and steer every social agent.</p>
+            </header>
+            <div class="pulse ${state.busy || st === "running" ? "busy" : ""}" id="pulse">
+              <span class="dot"></span>
+              <span id="pulse-text">${pulseText}</span>
+            </div>
+          </div>
+          ${state.error ? `<div class="banner error">${esc(state.error)}</div>` : ""}
+          ${state.notice ? `<div class="banner ok">${esc(state.notice)}</div>` : ""}
+          ${fleetHtml}
+          ${panelHtml}
         `;
 
-        app.querySelectorAll(".bot-chip").forEach((el) => {
-          el.onclick = () => { selectedId = el.dataset.id; refresh(); };
+        bind();
+      }
+
+      function bind() {
+        app.querySelectorAll("[data-select]").forEach((el) => {
+          el.onclick = () => {
+            state.selectedId = el.dataset.select;
+            state.notice = "";
+            state.selectedRunId = null;
+            state.outputs = null;
+            refreshDetail(true);
+          };
         });
-        const engageEl = app.querySelector("#engage-toggle");
-        if (engageEl) {
-          engageEl.onchange = () => { engage = engageEl.checked; };
-        }
-        const controls = app.querySelector(".panel-head .controls");
-        if (controls) {
-          controls.onclick = (ev) => {
-            const btn = ev.target.closest("button[data-act]");
-            if (!btn || !selected) return;
-            const actName = btn.dataset.act;
-            if (actName === "boot") return act(() => api(`/api/bots/${selected.id}/process/start`, { method: "POST" }));
-            if (actName === "once") return act(() => api(`/api/bots/${selected.id}/run`, {
-              method: "POST",
-              body: JSON.stringify({ mode: "once", sample: true, offline: true, engage }),
-            }));
-            if (actName === "daemon") return act(() => api(`/api/bots/${selected.id}/run`, {
-              method: "POST",
-              body: JSON.stringify({ mode: "daemon", engage }),
-            }));
-            if (actName === "pause") return act(() => api(`/api/bots/${selected.id}/pause`, { method: "POST" }));
-            if (actName === "resume") return act(() => api(`/api/bots/${selected.id}/resume`, { method: "POST" }));
-            if (actName === "stop") return act(() => api(`/api/bots/${selected.id}/stop`, { method: "POST" }));
+        const sample = app.querySelector("#opt-sample");
+        const offline = app.querySelector("#opt-offline");
+        const multimodal = app.querySelector("#opt-multimodal");
+        const engage = app.querySelector("#opt-engage");
+        if (sample) sample.onchange = () => { state.sample = sample.checked; if (sample.checked) state.engage = false; render(); };
+        if (offline) offline.onchange = () => { state.offline = offline.checked; };
+        if (multimodal) multimodal.onchange = () => { state.multimodal = multimodal.checked; };
+        if (engage) engage.onchange = () => { state.engage = engage.checked; };
+
+        app.querySelectorAll("[data-tab]").forEach((btn) => {
+          btn.onclick = () => { state.outputTab = btn.dataset.tab; render(); };
+        });
+        const runSelect = app.querySelector("#run-select");
+        if (runSelect) {
+          runSelect.onchange = () => {
+            state.selectedRunId = runSelect.value || null;
+            refreshDetail(true);
           };
         }
-        const ixHead = app.querySelector(".ix-panel .controls");
-        if (ixHead && selected) {
-          ixHead.onclick = (ev) => {
-            const btn = ev.target.closest("button[data-act]");
-            if (!btn) return;
-            if (btn.dataset.act === "propose") {
-              return act(() => api(`/api/bots/${selected.id}/interactions/propose`, { method: "POST", body: "{}" }));
-            }
-            if (btn.dataset.act === "exec-approved") {
-              return act(() => api(`/api/bots/${selected.id}/interactions/execute-approved`, {
-                method: "POST",
-                body: JSON.stringify({ dry_run: false }),
-              }));
-            }
+
+        app.querySelectorAll("[data-act]").forEach((btn) => {
+          btn.onclick = () => {
+            const bot = selected();
+            if (!bot) return;
+            const name = btn.dataset.act;
+            if (name === "boot") return act("boot", () => api(`/api/bots/${bot.id}/process/start`, { method: "POST" }));
+            if (name === "live") return act("live", () => api(`/api/bots/${bot.id}/run`, { method: "POST", body: JSON.stringify(runBody()) }));
+            if (name === "pause") return act("pause", () => api(`/api/bots/${bot.id}/pause`, { method: "POST" }));
+            if (name === "resume") return act("resume", () => api(`/api/bots/${bot.id}/resume`, { method: "POST" }));
+            if (name === "stop") return act("stop", () => api(`/api/bots/${bot.id}/stop`, { method: "POST" }));
+            if (name === "propose") return act("propose", () => api(`/api/bots/${bot.id}/interactions/propose`, { method: "POST", body: "{}" }));
+            if (name === "exec-approved") return act("exec-approved", () => api(`/api/bots/${bot.id}/interactions/execute-approved`, { method: "POST", body: JSON.stringify({ dry_run: false }) }));
           };
-        }
+        });
+
         app.querySelectorAll(".ix-item").forEach((el) => {
-          const id = el.dataset.id;
+          const id = el.dataset.ixId;
           el.querySelectorAll("button[data-ix]").forEach((btn) => {
             btn.onclick = () => {
+              const bot = selected();
+              if (!bot || !id) return;
               const draftEl = el.querySelector("textarea[data-draft]");
               const text = draftEl ? draftEl.value : null;
               if (btn.dataset.ix === "approve") {
-                return act(async () => {
+                return act("approve", async () => {
                   if (text != null) {
-                    await api(`/api/bots/${selected.id}/interactions/${id}`, {
+                    await api(`/api/bots/${bot.id}/interactions/${id}`, {
                       method: "PATCH",
                       body: JSON.stringify({ draft_text: text, final_text: text }),
                     });
                   }
-                  await api(`/api/bots/${selected.id}/interactions/${id}/approve`, {
+                  await api(`/api/bots/${bot.id}/interactions/${id}/approve`, {
                     method: "POST",
                     body: JSON.stringify({ final_text: text }),
                   });
                 });
               }
               if (btn.dataset.ix === "skip") {
-                return act(() => api(`/api/bots/${selected.id}/interactions/${id}/skip`, {
-                  method: "POST",
-                  body: JSON.stringify({ reason: "skipped in Fleet UI" }),
-                }));
+                return act("skip", () => api(`/api/bots/${bot.id}/interactions/${id}/skip`, { method: "POST", body: "{}" }));
               }
               if (btn.dataset.ix === "execute") {
-                return act(() => api(`/api/bots/${selected.id}/interactions/${id}/execute`, {
+                return act("execute", () => api(`/api/bots/${bot.id}/interactions/${id}/execute`, {
                   method: "POST",
                   body: JSON.stringify({ dry_run: false }),
                 }));
@@ -409,25 +724,42 @@
             };
           });
         });
+
         const form = app.querySelector("#dir-form");
         if (form) {
           form.onsubmit = (e) => {
             e.preventDefault();
+            const bot = selected();
+            if (!bot || !state.direction) return;
             const fd = new FormData(form);
             const next = {
-              ...direction,
+              ...state.direction,
+              brand_name: fd.get("brand_name"),
+              business_type: fd.get("business_type"),
+              region: fd.get("region"),
               goals: fd.get("goals"),
               constraints: fd.get("constraints"),
+              brand_voice: fd.get("brand_voice"),
               competitor_hashtags: String(fd.get("hashtags") || "").split("\n").map((s) => s.trim()).filter(Boolean),
               content_pillars: String(fd.get("pillars") || "").split("\n").map((s) => s.trim()).filter(Boolean),
             };
-            act(() => api(`/api/bots/${selected.id}/direction`, { method: "PUT", body: JSON.stringify(next) }));
+            act("direction", () => api(`/api/bots/${bot.id}/direction`, { method: "PUT", body: JSON.stringify(next) }));
           };
         }
       }
 
-      refresh();
-      setInterval(refresh, 4000);
+      function pollDelay() {
+        const st = botState(selected());
+        if (state.busy || st === "running" || st === "paused") return 1200;
+        return 4000;
+      }
+
+      async function loop() {
+        await refreshFleet();
+        setTimeout(loop, pollDelay());
+      }
+
+      loop();
     </script>
   </body>
 </html>
