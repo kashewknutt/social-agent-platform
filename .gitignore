@@ -9,13 +9,15 @@ node_modules/
 *.log
 .DS_Store
 
-# Plugin clones (fetched by setup — not vendored in git)
+# Plugin clones (fetched by setup — not vendored in git).
+# Engagement source of truth: https://github.com/kashewknutt/instagram-bot
 plugins/bot-*/
 !plugins/.gitkeep
 
 **/data/browser-profile/
 **/data/chrome-profile/
 **/data/usage_log.json
+**/data/interactions.db
 **/data/runs/
 **/data/raw/*.json
 !**/data/raw/sample_scraped.json

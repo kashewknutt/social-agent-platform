@@ -134,6 +134,89 @@ def stop_process(bot_id: str) -> Any:
         raise HTTPException(404, f"Unknown bot {bot_id}") from exc
 
 
+@app.get("/api/bots/{bot_id}/interactions")
+async def bot_interactions(
+    bot_id: str,
+    run_id: str | None = None,
+    status: str | None = None,
+    kind: str | None = None,
+    limit: int = Query(200, ge=1, le=2000),
+) -> Any:
+    qs = [f"limit={limit}"]
+    if run_id:
+        qs.append(f"run_id={run_id}")
+    if status:
+        qs.append(f"status={status}")
+    if kind:
+        qs.append(f"kind={kind}")
+    return await _proxy(bot_id, "GET", f"/interactions?{'&'.join(qs)}")
+
+
+@app.post("/api/bots/{bot_id}/interactions/propose")
+async def bot_interactions_propose(bot_id: str, request: Request) -> Any:
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    return await _proxy(bot_id, "POST", "/interactions/propose", body)
+
+
+@app.post("/api/bots/{bot_id}/interactions/execute-approved")
+async def bot_interactions_execute_approved(bot_id: str, request: Request) -> Any:
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    return await _proxy(bot_id, "POST", "/interactions/execute-approved", body)
+
+
+@app.get("/api/bots/{bot_id}/interactions/{interaction_id}")
+async def bot_interaction(bot_id: str, interaction_id: str) -> Any:
+    return await _proxy(bot_id, "GET", f"/interactions/{interaction_id}")
+
+
+@app.patch("/api/bots/{bot_id}/interactions/{interaction_id}")
+async def bot_interaction_patch(bot_id: str, interaction_id: str, request: Request) -> Any:
+    body = await request.json()
+    return await _proxy(bot_id, "PATCH", f"/interactions/{interaction_id}", body)
+
+
+@app.post("/api/bots/{bot_id}/interactions/{interaction_id}/approve")
+async def bot_interaction_approve(bot_id: str, interaction_id: str, request: Request) -> Any:
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    return await _proxy(bot_id, "POST", f"/interactions/{interaction_id}/approve", body)
+
+
+@app.post("/api/bots/{bot_id}/interactions/{interaction_id}/reject")
+async def bot_interaction_reject(bot_id: str, interaction_id: str, request: Request) -> Any:
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    return await _proxy(bot_id, "POST", f"/interactions/{interaction_id}/reject", body)
+
+
+@app.post("/api/bots/{bot_id}/interactions/{interaction_id}/skip")
+async def bot_interaction_skip(bot_id: str, interaction_id: str, request: Request) -> Any:
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    return await _proxy(bot_id, "POST", f"/interactions/{interaction_id}/skip", body)
+
+
+@app.post("/api/bots/{bot_id}/interactions/{interaction_id}/execute")
+async def bot_interaction_execute(bot_id: str, interaction_id: str, request: Request) -> Any:
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    return await _proxy(bot_id, "POST", f"/interactions/{interaction_id}/execute", body)
+
+
 async def _proxy(bot_id: str, method: str, path: str, body: Any = None) -> Any:
     try:
         return await registry.proxy(bot_id, method, path, body)
