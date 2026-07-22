@@ -32,7 +32,7 @@ def session_cooldown_seconds() -> int:
 class SessionLimiter:
     """File-backed daily session counter."""
 
-    def __init__(self, usage_log: Path, max_sessions_per_day: int = 4) -> None:
+    def __init__(self, usage_log: Path, max_sessions_per_day: int = 10) -> None:
         self.usage_log = Path(usage_log)
         self.max_sessions_per_day = max_sessions_per_day
 

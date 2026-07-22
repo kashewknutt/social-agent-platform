@@ -82,16 +82,31 @@ def cmd_synthesize(args: argparse.Namespace) -> None:
 
 def cmd_ingest(_: argparse.Namespace) -> None:
     """Run a single Instagram ingestion pass."""
+    from ig_agent.hashtag_rotation import pick_hashtags_for_session, prune_history
+
     ctx = load_agency_context()
-    hashtags = ctx.get("competitor_hashtags")
+    settings = get_settings()
+    prune_history(keep_days=14.0)
+    hashtags, note = pick_hashtags_for_session(
+        ctx.get("competitor_hashtags"),
+        within_days=settings.hashtag_cooldown_days,
+    )
+    print(note)
     path = asyncio.run(capture_trends_with_delays(hashtags=hashtags))
     print(f"Ingested → {path}")
 
 
 def cmd_run_once(args: argparse.Namespace) -> None:
     """Full pipeline: ingest → filter → (optional multimodal) → synthesize."""
+    from ig_agent.hashtag_rotation import pick_hashtags_for_session, prune_history
+
     ctx = load_agency_context()
-    hashtags = ctx.get("competitor_hashtags")
+    settings = get_settings()
+    prune_history(keep_days=14.0)
+    hashtags, note = pick_hashtags_for_session(
+        ctx.get("competitor_hashtags"),
+        within_days=settings.hashtag_cooldown_days,
+    )
 
     if args.sample:
         sample_path = RAW_DIR / "sample_scraped.json"
@@ -101,6 +116,7 @@ def cmd_run_once(args: argparse.Namespace) -> None:
         raw_path = sample_path
         print(f"Using sample data: {raw_path}")
     else:
+        print(note)
         print("Starting Instagram ingestion...")
         raw_path = asyncio.run(capture_trends_with_delays(hashtags=hashtags))
         print(f"Ingested → {raw_path}")

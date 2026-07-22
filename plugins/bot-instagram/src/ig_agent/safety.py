@@ -120,25 +120,31 @@ def record_scroll_session() -> None:
 
 
 def scroll_delay() -> float:
-    """Delay between scroll actions (simulated human scrolling)."""
-    return human_delay(2.0, 5.0)
+    """Delay between scroll sessions."""
+    return human_delay(0.8, 2.0)
 
 
 def engagement_delay(kind: str) -> float:
-    """Humanized delay between engagement actions by kind."""
+    """Short pause between engagement actions (keeps a light human rhythm).
+
+    HITL execute used to wait 25–90s per comment/DM which felt frozen.
+    These are intentionally snappy; daily caps still limit volume.
+    """
     ranges = {
-        "like": (4.0, 12.0),
-        "follow": (20.0, 55.0),
-        "comment": (25.0, 70.0),
-        "dm": (40.0, 90.0),
-        "post": (60.0, 120.0),
+        "like": (0.8, 2.5),
+        "follow": (1.5, 4.0),
+        "comment": (2.0, 6.0),
+        "dm": (3.0, 8.0),
+        "post": (8.0, 20.0),
     }
-    lo, hi = ranges.get(kind, (8.0, 25.0))
+    lo, hi = ranges.get(kind, (1.0, 3.0))
     return human_delay(lo, hi)
 
 
-async def async_engagement_delay(kind: str) -> None:
-    await asyncio.sleep(engagement_delay(kind))
+async def async_engagement_delay(kind: str, *, scale: float = 1.0) -> None:
+    delay = engagement_delay(kind) * max(0.0, scale)
+    if delay > 0:
+        await asyncio.sleep(delay)
 
 
 def profile_query_delay() -> float:

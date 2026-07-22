@@ -1,26 +1,25 @@
 {
-  "brand_name": "Apex Software Labs",
-  "business_type": "Custom Software Development & AI Integration Agency",
+  "brand_name": "Valnee Solutions",
+  "business_type": "MVP Development & Technical Execution Partner",
+  "website": "https://valnee.com",
+  "region": "India",
   "target_audience": [
     "Non-technical founders",
-    "Enterprise Product Managers",
-    "Tech Startup CEOs"
+    "Startup founders building their first MVP",
+    "Founders burned by freelancers or bloated agencies"
   ],
   "content_pillars": [
-    "SaaS Architecture Optimization",
-    "B2B App Development Pitfalls",
-    "Real-World Client Case Studies",
-    "Humorous Developer / Technical Workflows"
+    "MVP Development & Launch Guarantees",
+    "Founder Journey: Idea to Validation",
+    "Fixed-Price Delivery & Code Ownership",
+    "Real Client Case Studies",
+    "AI-Assisted Build Speed Without Shortcuts"
   ],
-  "brand_voice": "Authoritative, highly technical yet accessible, slightly witty, development-driven",
+  "brand_voice": "Direct, founder-friendly, trustworthy, no-hype. Emphasize reliability, fixed deadlines, and 100% code ownership. Speak to non-technical founders who need a partner that delivers.",
   "competitor_hashtags": [
-    "#softwaredevelopment",
-    "#saas",
-    "#webdevelopment",
-    "#techstartup",
-    "#codinglife"
+    "#trending"
   ],
   "competitor_profiles": [],
-  "goals": "Find adaptable B2B/SaaS content angles for the agency brand.",
-  "constraints": "Ingest is observation-only. Engagement (like/follow auto; comment/DM/post after human approval) runs in a separate browser pass."
+  "goals": "Find adaptable content angles that position Valnee Solutions (valnee.com) as the reliable MVP partner for founders \u2014 fixed price, guaranteed launch date, full code ownership.",
+  "constraints": "While browsing research, like and follow relevant creator posts live. Comments/DMs/posts still require human approval (HITL). Always brand as Valnee Solutions / valnee.com."
 }

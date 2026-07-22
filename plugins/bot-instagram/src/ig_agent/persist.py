@@ -204,6 +204,7 @@ def update_interaction(
     username: str | None = None,
     profile_url: str | None = None,
     post_url: str | None = None,
+    run_id: str | None = None,
     db_path: Path | None = None,
 ) -> dict[str, Any] | None:
     init_db(db_path)
@@ -239,6 +240,9 @@ def update_interaction(
     if post_url is not None:
         fields.append("post_url = ?")
         params.append(post_url)
+    if run_id is not None:
+        fields.append("run_id = ?")
+        params.append(run_id)
     if payload is not None:
         fields.append("payload_json = ?")
         params.append(json.dumps(payload))

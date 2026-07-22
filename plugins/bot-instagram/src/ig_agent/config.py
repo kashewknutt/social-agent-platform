@@ -71,7 +71,7 @@ class Settings:
         default_factory=lambda: int(os.getenv("MAX_POSTS_PER_SESSION", "5"))
     )
     max_scroll_sessions_per_day: int = field(
-        default_factory=lambda: int(os.getenv("MAX_SCROLL_SESSIONS_PER_DAY", "4"))
+        default_factory=lambda: int(os.getenv("MAX_SCROLL_SESSIONS_PER_DAY", "10"))
     )
     session_max_minutes: int = field(
         default_factory=lambda: int(os.getenv("SESSION_MAX_MINUTES", "12"))
@@ -82,32 +82,72 @@ class Settings:
     enable_multimodal: bool = field(
         default_factory=lambda: _env_bool("ENABLE_MULTIMODAL", False)
     )
-    relevance_threshold: int = 60
+    relevance_threshold: int = field(
+        default_factory=lambda: int(os.getenv("RELEVANCE_THRESHOLD", "35"))
+    )
 
     # Engagement daily caps
     max_likes_per_day: int = field(
-        default_factory=lambda: int(os.getenv("MAX_LIKES_PER_DAY", "20"))
+        default_factory=lambda: int(os.getenv("MAX_LIKES_PER_DAY", "80"))
     )
     max_follows_per_day: int = field(
-        default_factory=lambda: int(os.getenv("MAX_FOLLOWS_PER_DAY", "10"))
+        default_factory=lambda: int(os.getenv("MAX_FOLLOWS_PER_DAY", "40"))
     )
     max_comments_per_day: int = field(
-        default_factory=lambda: int(os.getenv("MAX_COMMENTS_PER_DAY", "8"))
+        default_factory=lambda: int(os.getenv("MAX_COMMENTS_PER_DAY", "12"))
     )
     max_dms_per_day: int = field(
-        default_factory=lambda: int(os.getenv("MAX_DMS_PER_DAY", "5"))
+        default_factory=lambda: int(os.getenv("MAX_DMS_PER_DAY", "8"))
     )
     max_posts_per_day: int = field(
-        default_factory=lambda: int(os.getenv("MAX_POSTS_PER_DAY", "1"))
+        default_factory=lambda: int(os.getenv("MAX_POSTS_PER_DAY", "2"))
     )
     engage_after_research: bool = field(
         default_factory=lambda: _env_bool("ENGAGE_AFTER_RESEARCH", True)
+    )
+    # Soft pause after IG challenge/throttle (minutes). Escalates up to max on repeats.
+    engage_circuit_minutes: int = field(
+        default_factory=lambda: int(os.getenv("ENGAGE_CIRCUIT_MINUTES", "5"))
+    )
+    engage_circuit_max_minutes: int = field(
+        default_factory=lambda: int(os.getenv("ENGAGE_CIRCUIT_MAX_MINUTES", "20"))
+    )
+    # Extra browser profiles to rotate into after a throttle (same login may still be needed)
+    engage_profile_slots: int = field(
+        default_factory=lambda: int(os.getenv("ENGAGE_PROFILE_SLOTS", "2"))
+    )
+    use_scripted_engagement: bool = field(
+        default_factory=lambda: _env_bool("USE_SCRIPTED_ENGAGEMENT", True)
+    )
+    use_scripted_scraper: bool = field(
+        default_factory=lambda: _env_bool("USE_SCRIPTED_SCRAPER", True)
+    )
+    scripted_action_timeout: float = field(
+        default_factory=lambda: float(os.getenv("SCRIPTED_ACTION_TIMEOUT_S", "6.0"))
+    )
+
+    ingest_live_comment_prompt: bool = field(
+        default_factory=lambda: _env_bool("INGEST_LIVE_COMMENT_PROMPT", True)
+    )
+    ingest_comment_timeout_s: int = field(
+        default_factory=lambda: int(os.getenv("INGEST_COMMENT_TIMEOUT_S", "180"))
+    )
+    hashtag_cooldown_days: float = field(
+        default_factory=lambda: float(os.getenv("HASHTAG_COOLDOWN_DAYS", "2"))
     )
 
     def ensure_dirs(self) -> None:
         for path in (RAW_DIR, FILTERED_DIR, MEDIA_DIR, REPORTS_DIR, DATA_DIR):
             path.mkdir(parents=True, exist_ok=True)
         self.browser_user_data_dir.mkdir(parents=True, exist_ok=True)
+        for slot in range(self.engage_profile_slots):
+            self.profile_dir_for_slot(slot).mkdir(parents=True, exist_ok=True)
+
+    def profile_dir_for_slot(self, slot: int) -> Path:
+        base = self.browser_user_data_dir
+        if slot <= 0:
+            return base
+        return base.parent / f"{base.name}-slot{slot}"
 
 
 def get_settings() -> Settings:

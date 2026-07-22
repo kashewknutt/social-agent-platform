@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -94,6 +95,21 @@ async def bot_logs(bot_id: str, tail: int = Query(200, ge=1, le=2000)) -> Any:
     return await _proxy(bot_id, "GET", f"/logs?tail={tail}")
 
 
+@app.get("/api/bots/{bot_id}/boot-log")
+def bot_boot_log(bot_id: str, tail: int = Query(80, ge=1, le=500)) -> Any:
+    try:
+        return registry.read_boot_log(bot_id, tail=tail)
+    except KeyError as exc:
+        raise HTTPException(404, f"Unknown bot {bot_id}") from exc
+
+
+@app.get("/api/bots/{bot_id}/disconnect-log")
+def bot_disconnect_log(bot_id: str, tail: int = Query(30, ge=1, le=200)) -> Any:
+    from orchestrator_app.registry import read_disconnect_log
+
+    return {"lines": read_disconnect_log(tail=tail, bot_id=bot_id)}
+
+
 @app.get("/api/bots/{bot_id}/direction")
 async def get_direction(bot_id: str) -> Any:
     return await _proxy(bot_id, "GET", "/direction")
@@ -109,6 +125,11 @@ async def put_direction(bot_id: str, request: Request) -> Any:
 async def bot_outputs(bot_id: str, run_id: str | None = Query(default=None)) -> Any:
     path = "/outputs" if not run_id else f"/outputs?run_id={run_id}"
     return await _proxy(bot_id, "GET", path)
+
+
+@app.get("/api/bots/{bot_id}/live")
+async def bot_live(bot_id: str) -> Any:
+    return await _proxy(bot_id, "GET", "/live")
 
 
 @app.post("/api/bots/{bot_id}/process/start")
@@ -163,6 +184,36 @@ async def bot_interactions_execute_approved(bot_id: str, request: Request) -> An
     except Exception:
         body = {}
     return await _proxy(bot_id, "POST", "/interactions/execute-approved", body)
+
+
+@app.get("/api/bots/{bot_id}/engage/circuit")
+async def bot_engage_circuit(bot_id: str) -> Any:
+    return await _proxy(bot_id, "GET", "/engage/circuit")
+
+
+@app.get("/api/bots/{bot_id}/engage/scripted-health")
+async def bot_scripted_health(bot_id: str) -> Any:
+    return await _proxy(bot_id, "GET", "/engage/scripted-health")
+
+
+@app.get("/api/bots/{bot_id}/ingest/comment-pending")
+async def bot_ingest_comment_pending(bot_id: str) -> Any:
+    return await _proxy(bot_id, "GET", "/ingest/comment-pending")
+
+
+@app.post("/api/bots/{bot_id}/ingest/comment-decision")
+async def bot_ingest_comment_decision(bot_id: str, request: Request) -> Any:
+    body = await request.json()
+    return await _proxy(bot_id, "POST", "/ingest/comment-decision", body)
+
+
+@app.post("/api/bots/{bot_id}/engage/circuit/clear")
+async def bot_engage_circuit_clear(bot_id: str, request: Request) -> Any:
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    return await _proxy(bot_id, "POST", "/engage/circuit/clear", body)
 
 
 @app.get("/api/bots/{bot_id}/interactions/{interaction_id}")

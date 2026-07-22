@@ -124,10 +124,39 @@
       .step.done { border-color: #b7e5d8; background: #f0faf6; }
       .step.active { border-color: var(--accent); background: var(--accent-light); color: var(--ink); }
       .step.fail { border-color: #f5c3c6; background: #fff5f5; }
+      .progress-wrap { margin: 0 0 1rem; }
+      .progress-meta {
+        display: flex; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;
+        font-size: 0.8rem; color: var(--muted); margin-bottom: 0.4rem;
+      }
+      .progress-track {
+        height: 0.55rem; border-radius: 999px; background: var(--track); overflow: hidden;
+      }
+      .progress-fill {
+        height: 100%; width: 0%; border-radius: 999px; background: var(--accent);
+        transition: width 0.35s ease;
+      }
+      .progress-fill.running { background: linear-gradient(90deg, var(--accent), #9b87ff, var(--accent)); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
+      @keyframes shimmer { to { background-position: -200% 0; } }
+      .status-banner {
+        margin: 0 0 1rem; padding: 0.75rem 0.9rem; border-radius: 12px;
+        background: var(--accent-light); border: 1px solid #d4c9ff; font-size: 0.88rem;
+      }
+      .status-banner strong { display: block; margin-bottom: 0.15rem; }
 
       .grid { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 1rem; }
       @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
       h4 { margin: 0 0 0.5rem; font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+      .logs-head {
+        display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem;
+      }
+      .logs-head h4 { margin: 0; }
+      .logs-head .ghost {
+        font-size: 0.72rem; padding: 0.25rem 0.55rem; border-radius: 8px;
+        border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer;
+      }
+      .logs-head .ghost:hover { background: var(--track); }
+      .logs-head .ghost.copied { border-color: #c3eada; color: var(--ok); }
       .logs {
         margin: 0; min-height: 220px; max-height: 320px; overflow: auto;
         padding: 0.85rem 0.95rem; border-radius: 12px; background: var(--log-bg);
@@ -216,6 +245,49 @@
         width: 100%; min-height: 64px; margin-top: 0.35rem; border: 1px solid var(--line);
         border-radius: 10px; padding: 0.5rem 0.65rem; font: inherit; font-size: 0.85rem;
       }
+      .catch-panel { margin-top: 1.25rem; padding-top: 1.1rem; border-top: 1px solid var(--line); }
+      .catch-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+      .catch-table th {
+        text-align: left; font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase;
+        color: var(--muted); padding: 0.45rem 0.4rem; border-bottom: 1px solid var(--line);
+      }
+      .catch-table td {
+        padding: 0.55rem 0.4rem; border-bottom: 1px solid var(--line); vertical-align: top;
+      }
+      .catch-table tr.reject { opacity: 0.72; }
+      .catch-table .score-cell {
+        font-weight: 700; min-width: 2.5rem;
+      }
+      .catch-table .score-cell.kept { color: #5a43c9; }
+      .catch-table .score-cell.drop { color: var(--danger); }
+      .badge-kept, .badge-drop {
+        display: inline-block; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.04em;
+        text-transform: uppercase; padding: 0.12rem 0.4rem; border-radius: 999px;
+      }
+      .badge-kept { background: #d8f6ee; color: var(--ok); }
+      .badge-drop { background: #ffe6e7; color: var(--danger); }
+      .catch-cap { color: var(--ink); font-weight: 500; }
+      .catch-meta { color: var(--muted); font-size: 0.75rem; margin-top: 0.2rem; }
+      .ingest-modal-backdrop {
+        position: fixed; inset: 0; z-index: 9999;
+        background: rgba(12, 14, 22, 0.55);
+        display: flex; align-items: center; justify-content: center; padding: 1rem;
+      }
+      .ingest-modal {
+        background: var(--card, #fff); color: var(--ink, #111);
+        border-radius: 14px; max-width: 520px; width: 100%;
+        box-shadow: 0 24px 60px rgba(0,0,0,0.25); padding: 1.25rem 1.35rem;
+        border: 1px solid var(--line, #e5e7eb);
+      }
+      .ingest-modal h3 { margin: 0 0 0.35rem; font-size: 1.05rem; }
+      .ingest-modal .hint { color: var(--muted); font-size: 0.82rem; margin-bottom: 0.75rem; }
+      .ingest-modal textarea {
+        width: 100%; min-height: 96px; resize: vertical;
+        border: 1px solid var(--line); border-radius: 8px; padding: 0.65rem;
+        font: inherit; box-sizing: border-box;
+      }
+      .ingest-modal-actions { display: flex; gap: 0.5rem; margin-top: 0.85rem; justify-content: flex-end; }
+      .ingest-modal-actions button { min-width: 7rem; }
     </style>
   </head>
   <body>
@@ -248,10 +320,80 @@
         multimodal: true,
         engage: true,
         interactions: [],
+        ixDrafts: {},
+        circuit: null,
+        scriptedHealth: null,
+        live: null,
+        disconnectLog: [],
+        bootLogTail: [],
         lastRefreshMs: 0,
+        painted: false,
+        forceFullRender: false,
+        ingestCommentDraftToken: null,
+        ingestCommentDraftText: "",
       };
 
       const STEPS = ["boot", "ingest", "filter", "synthesize", "done"];
+
+      function syncIngestCommentModal() {
+        let root = document.getElementById("ingest-comment-root");
+        if (!root) {
+          root = document.createElement("div");
+          root.id = "ingest-comment-root";
+          document.body.appendChild(root);
+        }
+        const pending = state.live?.pending_comment;
+        if (!pending) {
+          root.innerHTML = "";
+          return;
+        }
+        const token = pending.token || pending.requested_at || "pending";
+        if (state.ingestCommentDraftToken !== token) {
+          state.ingestCommentDraftToken = token;
+          state.ingestCommentDraftText = pending.draft_text || "";
+        }
+        const cap = (pending.caption || pending.post_url || "Reel").slice(0, 180);
+        root.innerHTML = `
+          <div class="ingest-modal-backdrop" role="dialog" aria-modal="true" aria-label="Approve ingest comment">
+            <div class="ingest-modal">
+              <h3>Comment on this reel now?</h3>
+              <p class="hint">Ingest is paused until you approve or skip. Edit the draft below if you like.</p>
+              <div class="catch-meta">${pending.username ? `@${esc(pending.username)} · ` : ""}${esc(cap)}</div>
+              <textarea id="ingest-comment-text" rows="4">${esc(state.ingestCommentDraftText)}</textarea>
+              <div class="ingest-modal-actions">
+                <button type="button" class="ghost" data-ingest-comment="skip">Skip</button>
+                <button type="button" class="primary" data-ingest-comment="approve">Approve &amp; comment</button>
+              </div>
+            </div>
+          </div>`;
+        const ta = root.querySelector("#ingest-comment-text");
+        if (ta) {
+          ta.oninput = () => { state.ingestCommentDraftText = ta.value; };
+        }
+        root.querySelectorAll("[data-ingest-comment]").forEach((btn) => {
+          btn.onclick = async () => {
+            const bot = selected();
+            if (!bot) return;
+            const approve = btn.dataset.ingestComment === "approve";
+            const text = root.querySelector("#ingest-comment-text")?.value || state.ingestCommentDraftText || "";
+            state.busy = "comment";
+            state.error = "";
+            try {
+              await api(`/api/bots/${bot.id}/ingest/comment-decision`, {
+                method: "POST",
+                body: JSON.stringify({ approve, text: approve ? text : null }),
+              });
+              state.notice = approve ? "Comment approved — posting on reel…" : "Skipped comment — continuing ingest";
+              state.ingestCommentDraftToken = null;
+              root.innerHTML = "";
+            } catch (e) {
+              state.error = e.message;
+            } finally {
+              state.busy = "";
+            }
+          };
+        });
+      }
 
       async function api(path, options = {}) {
         const res = await fetch(path, {
@@ -276,19 +418,80 @@
         const cur = (bot?.status?.current_step || "").toLowerCase();
         const last = (bot?.status?.last_action || "").toLowerCase();
         const reachable = Boolean(bot?.health?.reachable);
+        const order = { ingest: 1, filter: 2, multimodal: 3, synthesize: 4, propose: 5, engage: 6 };
         if (stepName === "boot") return reachable ? "done" : (state.busy === "boot" ? "active" : "");
         if (!reachable) return "";
-        if (st === "error" && ["ingest", "filter", "multimodal", "synthesize"].includes(stepName) && cur.includes(stepName)) return "fail";
-        if (st === "idle" && (last.includes("completed") || cur === "idle")) return "done";
+        if (stepName === "done") {
+          if (st === "idle" && (last.includes("completed") || cur === "idle")) return "done";
+          return "";
+        }
+        if (st === "error" && Object.keys(order).some((k) => cur.includes(k) && stepName === k)) return "fail";
         if (st === "running" || st === "paused") {
           if (cur.includes(stepName) || last.includes(stepName)) return "active";
-          const order = { ingest: 1, filter: 2, multimodal: 3, synthesize: 4 };
-          const curOrder = order[Object.keys(order).find((k) => cur.includes(k))] || 0;
+          const curKey = Object.keys(order).find((k) => cur.includes(k));
+          const curOrder = curKey ? order[curKey] : 0;
           if (order[stepName] && curOrder && order[stepName] < curOrder) return "done";
         }
-        if (stepName === "done" && st === "idle" && last.includes("completed")) return "done";
-        if (stepName === "done" && (st === "running" || st === "paused")) return "active";
+        if (st === "idle" && last.includes("completed")) {
+          if (order[stepName]) return "done";
+        }
         return "";
+      }
+
+      function pipelineProgress(bot) {
+        const st = botState(bot);
+        const cur = (bot?.status?.current_step || "").toLowerCase();
+        const last = bot?.status?.last_action || "";
+        const stages = [
+          { id: "boot", label: "Boot", weight: 5 },
+          { id: "ingest", label: "Ingest", weight: 45 },
+          { id: "filter", label: "Filter", weight: 15 },
+          { id: "multimodal", label: "Analyze", weight: 10 },
+          { id: "synthesize", label: "Synthesize", weight: 15 },
+          { id: "propose", label: "Propose", weight: 5 },
+          { id: "engage", label: "Engage", weight: 5 },
+        ];
+        let pct = 0;
+        if (!bot?.health?.reachable) return { pct: 0, label: "Bot offline — click Boot API", running: false };
+        if (st === "idle" && (last.toLowerCase().includes("completed") || cur === "idle")) {
+          return { pct: 100, label: last || "Pipeline completed", running: false };
+        }
+        let found = false;
+        for (const stage of stages) {
+          const cls = stepStatus(bot, stage.id);
+          if (cls === "done") pct += stage.weight;
+          else if (cls === "active" || cls === "fail") {
+            pct += stage.weight * (cls === "fail" ? 0.5 : 0.45);
+            found = true;
+            return {
+              pct: Math.min(98, Math.round(pct)),
+              label: `${stage.label}: ${last || cur || "in progress"}`,
+              running: st === "running" || st === "paused",
+            };
+          }
+        }
+        if (st === "running" && !found) {
+          return { pct: 8, label: last || "Starting…", running: true };
+        }
+        return { pct: Math.round(pct), label: last || "Ready", running: false };
+      }
+
+      function userIsBusy() {
+        const active = document.activeElement;
+        if (active && app.contains(active)) {
+          const tag = (active.tagName || "").toLowerCase();
+          if (tag === "input" || tag === "textarea" || tag === "select" || active.isContentEditable) {
+            return true;
+          }
+        }
+        const sel = window.getSelection && window.getSelection();
+        if (sel && !sel.isCollapsed && String(sel).length > 0) {
+          const node = sel.anchorNode;
+          if (node && app.contains(node.nodeType === 1 ? node : node.parentElement)) {
+            return true;
+          }
+        }
+        return false;
       }
 
       async function refreshFleet() {
@@ -305,7 +508,14 @@
         }
         state.lastRefreshMs = Math.round(performance.now() - t0);
         await refreshDetail(false);
-        render();
+        // Never wipe the whole DOM on the poll loop — that kills typing + text selection.
+        if (!state.painted || state.forceFullRender) {
+          state.forceFullRender = false;
+          render();
+        } else {
+          patchLiveOnly();
+        }
+        syncIngestCommentModal();
       }
 
       async function refreshDetail(doRender = true) {
@@ -313,20 +523,34 @@
         if (!bot) return;
         try {
           const runQs = state.selectedRunId ? `?run_id=${encodeURIComponent(state.selectedRunId)}` : "";
-          const [snap, logData, dir, outputs, ixData] = await Promise.all([
+          const [snap, logData, dir, outputs, ixData, liveData, discData, bootData] = await Promise.all([
             api(`/api/bots/${bot.id}`).catch(() => null),
             api(`/api/bots/${bot.id}/logs?tail=150`).catch(() => ({ lines: [] })),
             api(`/api/bots/${bot.id}/direction`).catch(() => null),
             api(`/api/bots/${bot.id}/outputs${runQs}`).catch(() => null),
             api(`/api/bots/${bot.id}/interactions?limit=100`).catch(() => ({ interactions: [] })),
+            api(`/api/bots/${bot.id}/live`).catch(() => null),
+            api(`/api/bots/${bot.id}/disconnect-log?tail=20`).catch(() => ({ lines: [] })),
+            api(`/api/bots/${bot.id}/boot-log?tail=40`).catch(() => ({ lines: [] })),
           ]);
           if (snap) state.bots = state.bots.map((b) => (b.id === snap.id ? snap : b));
           state.logs = logData.lines || [];
-          const active = document.activeElement;
-          const editing = active && active.closest && active.closest("#dir-form");
-          if (!editing) state.direction = dir;
+          state.disconnectLog = discData?.lines || [];
+          state.bootLogTail = bootData?.lines || [];
+          // Don't clobber Direction fields while the operator is typing in that form
+          if (!isEditingDirection()) state.direction = dir;
           state.outputs = outputs;
           state.interactions = ixData?.interactions || [];
+          state.circuit = ixData?.circuit || state.circuit;
+          state.scriptedHealth = ixData?.scripted_health || state.scriptedHealth;
+          const ixIds = new Set((state.interactions || []).map((i) => i.id));
+          for (const id of Object.keys(state.ixDrafts)) {
+            const ix = (state.interactions || []).find((i) => i.id === id);
+            if (!ixIds.has(id) || (ix && ix.status !== "proposed" && ix.status !== "approved")) {
+              delete state.ixDrafts[id];
+            }
+          }
+          state.live = snap?.status?.live || liveData || outputs?.live || state.live;
           if (outputs?.run?.run_id && !state.selectedRunId) {
             state.selectedRunId = outputs.run.run_id;
           }
@@ -351,36 +575,104 @@
         return html.join("");
       }
 
+      function renderCaught() {
+        const live = state.live;
+        const out = state.outputs;
+        const posts = (live?.posts && live.posts.length)
+          ? live.posts
+          : (out?.posts?.all_scored || out?.posts?.filtered || out?.posts?.raw || []);
+        const threshold = live?.threshold ?? out?.run?.threshold ?? 60;
+        const caught = live?.caught ?? posts.length;
+        const kept = live?.kept ?? posts.filter((p) => p.kept || (p.relevance_score != null && p.relevance_score >= threshold)).length;
+        const rejected = live?.rejected ?? Math.max(0, posts.length - kept);
+        const stage = live?.stage || (out?.run ? "idle" : "waiting");
+
+        const rows = posts.length
+          ? posts.map((p, i) => {
+              const score = p.relevance_score;
+              const isKept = p.kept === true || (score != null && score >= threshold);
+              const scored = score != null;
+              const gate = scored
+                ? (isKept ? `<span class="badge-kept">kept</span>` : `<span class="badge-drop">below ${threshold}</span>`)
+                : `<span class="empty">${stage === "ingest" ? "catching…" : "unscored"}</span>`;
+              const cap = (p.caption || "").trim();
+              const looksLikeNoise = /AgentOutput\(|thinking=/.test(cap);
+              const title = looksLikeNoise
+                ? (p.post_url || "Caught reel (caption pending)")
+                : (cap || p.post_url || "No caption");
+              return `
+                <tr class="${scored && !isKept ? "reject" : ""}">
+                  <td>${i + 1}</td>
+                  <td class="score-cell ${!scored ? "" : (isKept ? "kept" : "drop")}">${scored ? score : "—"}</td>
+                  <td>${gate}</td>
+                  <td>
+                    <div class="catch-cap">${esc(title.slice(0, 160))}${title.length > 160 ? "…" : ""}</div>
+                    <div class="catch-meta">
+                      ${p.username ? `@${esc(p.username)} · ` : ""}${p.post_type ? esc(p.post_type) : "post"}
+                      ${p.likes != null && p.likes !== "" ? ` · ${fmtCount(p.likes, "likes")}` : ""}
+                      ${p.views != null && p.views !== "" ? ` · ${fmtCount(p.views, "views")}` : ""}
+                      ${p.comments_count != null && p.comments_count !== "" ? ` · ${fmtCount(p.comments_count, "comments")}` : ""}
+                    </div>
+                    ${p.reason && !looksLikeNoise ? `<div class="catch-meta">${esc(p.reason)}</div>` : ""}
+                    ${p.post_url ? `<div class="catch-meta"><a href="${esc(p.post_url)}" target="_blank" rel="noreferrer">${esc(p.post_url)}</a></div>` : ""}
+                  </td>
+                </tr>`;
+            }).join("")
+          : `<tr><td colspan="4" class="empty">No reels caught yet — start Run research and watch this table fill live.</td></tr>`;
+
+        return `
+          <div class="catch-panel">
+            <div class="outputs-head">
+              <div>
+                <h4>Caught reels</h4>
+                <div class="outputs-meta">
+                  Stage <strong>${esc(stage)}</strong>
+                  · ${caught} caught · ${kept} kept · ${rejected} rejected
+                  · threshold ≥ ${esc(String(threshold))}
+                </div>
+              </div>
+            </div>
+            <div style="overflow:auto; max-height:420px; border:1px solid var(--line); border-radius:12px;">
+              <table class="catch-table">
+                <thead><tr><th>#</th><th>Score</th><th>Gate</th><th>Reel / data</th></tr></thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </div>
+          </div>`;
+      }
+
       function renderOutputs() {
         const out = state.outputs;
         if (!out) {
           return `<div class="outputs"><h4>Outputs</h4><p class="empty">Outputs API unavailable for this bot.</p></div>`;
         }
-        if (!out.run) {
-          return `<div class="outputs"><h4>Outputs</h4><p class="empty">No completed runs in the database yet. Run research to populate SQLite.</p></div>`;
+        if (!out.run && !(state.live?.posts || []).length) {
+          return `<div class="outputs"><h4>Outputs</h4><p class="empty">No completed runs yet. Run research to catch live Instagram data.</p></div>`;
         }
-        const run = out.run;
+        const run = out.run || { run_id: "live", status: state.live?.stage || "running" };
         const filtered = out.posts?.filtered || [];
         const raw = out.posts?.raw || [];
+        const scored = out.posts?.all_scored || [];
         const notes = out.notes || [];
         const report = out.report;
         const runs = out.runs || [];
 
-        const postsHtml = filtered.length
-          ? `<div class="post-list">${filtered.map((p) => `
+        const list = scored.length ? scored : filtered;
+        const postsHtml = list.length
+          ? `<div class="post-list">${list.map((p) => `
               <div class="post-row">
                 <div class="score">${p.relevance_score ?? "—"}</div>
                 <div>
                   <h5>${esc((p.caption || "Untitled post").slice(0, 120))}${((p.caption || "").length > 120) ? "…" : ""}</h5>
-                  <p>${esc(p.reason || p.adaptable_hook || "")}</p>
+                  <p>${esc(p.reason || p.adaptable_hook || "")}${p.kept === false ? " · rejected" : ""}</p>
                   ${p.post_url ? `<a href="${esc(p.post_url)}" target="_blank" rel="noreferrer">${esc(p.post_url)}</a>` : ""}
                 </div>
                 <div class="post-side">
                   ${p.post_type ? esc(p.post_type) : ""}<br/>
-                  ${p.likes != null ? `${Number(p.likes).toLocaleString()} likes` : ""}
+                  ${p.likes != null && p.likes !== "" ? fmtCount(p.likes, "likes") : ""}
                 </div>
               </div>`).join("")}</div>`
-          : `<p class="empty">No filtered posts for this run.${raw.length ? ` (${raw.length} raw ingested)` : ""}</p>`;
+          : `<p class="empty">No scored posts for this run.${raw.length ? ` (${raw.length} raw ingested)` : ""}</p>`;
 
         const reportHtml = report?.body
           ? `<div class="report">${simpleMarkdown(report.body)}</div>`
@@ -419,7 +711,7 @@
               </select>
             </div>
             <div class="tabs">
-              <button type="button" data-tab="posts" class="${state.outputTab === "posts" ? "active" : ""}">Filtered posts (${filtered.length})</button>
+              <button type="button" data-tab="posts" class="${state.outputTab === "posts" ? "active" : ""}">All scored (${list.length}) · kept ${filtered.length}</button>
               <button type="button" data-tab="dashboard" class="${state.outputTab === "dashboard" ? "active" : ""}">Dashboard</button>
               <button type="button" data-tab="notes" class="${state.outputTab === "notes" ? "active" : ""}">Media notes (${notes.length})</button>
             </div>
@@ -431,6 +723,7 @@
         state.busy = name;
         state.error = "";
         state.notice = "";
+        state.forceFullRender = true;
         render();
         try {
           const result = await fn();
@@ -438,11 +731,11 @@
             ? result.message
             : (name === "live" ? "Run started — watch the live trail and Chromium window." : "Done.");
           await refreshDetail(false);
-          await refreshFleet();
         } catch (e) {
           state.error = e.message;
         } finally {
           state.busy = "";
+          state.forceFullRender = true;
           render();
         }
       }
@@ -450,27 +743,124 @@
       function runBody() {
         return {
           mode: "once",
-          sample: Boolean(state.sample),
+          sample: false,
           offline: Boolean(state.offline),
           multimodal: Boolean(state.multimodal),
-          engage: Boolean(state.engage) && !state.sample,
+          engage: Boolean(state.engage),
         };
       }
 
+      function isEditingDirection() {
+        const active = document.activeElement;
+        return Boolean(active && app.contains(active) && active.closest && active.closest("#dir-form"));
+      }
+
+      function isEditingInteraction() {
+        const active = document.activeElement;
+        return Boolean(active && app.contains(active) && active.matches && active.matches("textarea[data-draft]"));
+      }
+
+      function syncDraftsFromDom() {
+        app.querySelectorAll(".ix-item textarea[data-draft]").forEach((ta) => {
+          const id = ta.closest(".ix-item")?.dataset?.ixId;
+          if (id) state.ixDrafts[id] = ta.value;
+        });
+        if (isEditingDirection() && state.direction) {
+          const form = app.querySelector("#dir-form");
+          if (form) {
+            const fd = new FormData(form);
+            state.direction = {
+              ...state.direction,
+              brand_name: String(fd.get("brand_name") ?? state.direction.brand_name ?? ""),
+              business_type: String(fd.get("business_type") ?? state.direction.business_type ?? ""),
+              website: String(fd.get("website") ?? state.direction.website ?? ""),
+              region: String(fd.get("region") ?? state.direction.region ?? ""),
+              goals: String(fd.get("goals") ?? state.direction.goals ?? ""),
+              constraints: String(fd.get("constraints") ?? state.direction.constraints ?? ""),
+              brand_voice: String(fd.get("brand_voice") ?? state.direction.brand_voice ?? ""),
+              competitor_hashtags: String(fd.get("hashtags") || "").split("\n").map((s) => s.trim()).filter(Boolean),
+              content_pillars: String(fd.get("pillars") || "").split("\n").map((s) => s.trim()).filter(Boolean),
+            };
+          }
+        }
+      }
+
+      function captureUiState() {
+        syncDraftsFromDom();
+        const active = document.activeElement;
+        const focus = { kind: null };
+        if (active && app.contains(active)) {
+          if (active.matches("textarea[data-draft]")) {
+            const id = active.closest(".ix-item")?.dataset?.ixId || null;
+            focus.kind = "ix";
+            focus.id = id;
+            focus.start = active.selectionStart;
+            focus.end = active.selectionEnd;
+          } else if (active.closest("#dir-form") && active.name) {
+            focus.kind = "dir";
+            focus.name = active.name;
+            focus.start = active.selectionStart;
+            focus.end = active.selectionEnd;
+          } else if (active.id) {
+            focus.kind = "id";
+            focus.id = active.id;
+          }
+        }
+        return { focus };
+      }
+
+      function restoreUiState(ui) {
+        if (!ui?.focus?.kind) return;
+        let el = null;
+        if (ui.focus.kind === "ix" && ui.focus.id) {
+          el = app.querySelector(`.ix-item[data-ix-id="${CSS.escape(ui.focus.id)}"] textarea[data-draft]`);
+        } else if (ui.focus.kind === "dir" && ui.focus.name) {
+          el = app.querySelector(`#dir-form [name="${CSS.escape(ui.focus.name)}"]`);
+        } else if (ui.focus.kind === "id" && ui.focus.id) {
+          el = document.getElementById(ui.focus.id);
+        }
+        if (!el) return;
+        el.focus({ preventScroll: true });
+        if (typeof ui.focus.start === "number" && typeof el.setSelectionRange === "function") {
+          try { el.setSelectionRange(ui.focus.start, ui.focus.end ?? ui.focus.start); } catch { /* ignore */ }
+        }
+      }
+
+      function draftTextFor(ix) {
+        if (ix?.id && Object.prototype.hasOwnProperty.call(state.ixDrafts, ix.id)) {
+          return state.ixDrafts[ix.id];
+        }
+        return ix.final_text || ix.draft_text || "";
+      }
+
       function renderInteractions() {
-        const items = state.interactions || [];
+        // Only actionable HITL + in-flight autos. Done/failed/skipped clutter the queue.
+        const ACTIVE = new Set(["proposed", "approved", "executing"]);
+        const items = (state.interactions || []).filter((ix) => {
+          const blob = `${ix.post_url || ""} ${ix.draft_text || ""} ${ix.final_text || ""}`;
+          if (/sample\d|Apex Software/i.test(blob)) return false;
+          if (!ACTIVE.has(ix.status)) return false;
+          return true;
+        });
         const hitl = items.filter((i) => !i.auto);
         const autos = items.filter((i) => i.auto);
+        const allIx = state.interactions || [];
         const row = (ix) => {
           const editable = !ix.auto && (ix.status === "proposed" || ix.status === "approved");
-          const text = ix.final_text || ix.draft_text || "";
+          const text = draftTextFor(ix);
           const target = ix.post_url || ix.profile_url || ix.username || "—";
+          const execTag = ix.payload?.executor === "scripted"
+            ? `<span class="empty" style="color:#0a7">scripted</span>`
+            : ix.payload?.executor === "llm_fallback"
+              ? `<span class="empty" style="color:#c60">AI fallback</span>`
+              : "";
           return `
             <div class="ix-item" data-ix-id="${esc(ix.id)}">
               <div class="ix-top">
                 <strong>${esc(ix.kind)}</strong>
                 <span class="pill ${esc(ix.status)}">${esc(ix.status)}</span>
                 <span class="empty">${ix.auto ? "auto" : "HITL"}</span>
+                ${execTag}
               </div>
               <div class="empty" style="margin:0.35rem 0">${esc(target)}</div>
               ${!ix.auto ? `<textarea data-draft ${editable ? "" : "disabled"}>${esc(text)}</textarea>` : ""}
@@ -485,26 +875,31 @@
               </div>
             </div>`;
         };
+        const hitlDone = allIx.filter((a) => !a.auto && a.status === "done").length;
+        const hitlFailed = allIx.filter((a) => !a.auto && a.status === "failed").length;
         return `
           <div class="outputs" style="margin-top:1rem">
             <div class="outputs-head">
               <div>
                 <h4>Interactions</h4>
                 <div class="outputs-meta">
-                  Auto ${autos.filter((a) => a.status === "done").length} done /
-                  ${autos.filter((a) => a.status === "failed").length} failed /
-                  ${autos.filter((a) => a.status === "proposed").length} queued ·
+                  Queue ${items.length} ·
+                  Auto ${autos.filter((a) => a.status === "proposed").length} queued ·
                   HITL ${hitl.filter((a) => a.status === "proposed").length} proposed /
                   ${hitl.filter((a) => a.status === "approved").length} approved
+                  ${hitlDone || hitlFailed ? ` · cleared ${hitlDone} done / ${hitlFailed} failed` : ""}
                 </div>
               </div>
               <div class="controls">
                 <button type="button" data-act="propose" ${!selected()?.health?.reachable || state.busy ? "disabled" : ""}>Propose</button>
                 <button type="button" data-act="exec-approved" ${!selected()?.health?.reachable || state.busy ? "disabled" : ""}>Execute approved</button>
+                <button type="button" data-act="resume-engage" title="Clear soft pause / optionally rotate browser profile" ${!selected()?.health?.reachable || state.busy ? "disabled" : ""}>Resume engage</button>
               </div>
             </div>
+            ${state.circuit?.open ? `<div class="banner warn">Engage paused ~${Math.max(1, Math.ceil((state.circuit.remaining_seconds || 0) / 60))}m after an Instagram challenge (profile slot ${state.circuit.profile_slot ?? 0}). VPN/incognito usually won't help account flags — use Resume engage, or Resume with profile rotate.</div>` : ""}
+            ${state.scriptedHealth?.needs_selector_update ? `<div class="banner warn">${esc(state.scriptedHealth.message || "Some actions fell back to AI — update scripted_actions.py")} (${state.scriptedHealth.total || 0} today)</div>` : ""}
             <div class="ix-list">
-              ${items.length ? items.map(row).join("") : `<p class="empty">No interactions yet. Run research with Engage on, or click Propose.</p>`}
+              ${items.length ? items.map(row).join("") : `<p class="empty">No open interactions. Run research with Engage on, or click Propose.</p>`}
             </div>
           </div>`;
       }
@@ -513,17 +908,208 @@
         return String(s).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
       }
 
+      function fmtCount(v, label) {
+        if (v == null || v === "") return "";
+        const n = Number(v);
+        if (Number.isFinite(n)) return `${n.toLocaleString()} ${label}`;
+        return `${String(v)} ${label}`;
+      }
+
+      function logsText(bot) {
+        const reachable = Boolean(bot?.health?.reachable);
+        const health = bot?.health || {};
+        const lines = [];
+
+        if (!reachable) {
+          lines.push("Bot API offline — click Boot API.");
+          if (health.error) lines.push("", "Last error:", health.error);
+          if (health.boot_log) lines.push("", "Boot log:", health.boot_log);
+          if (state.bootLogTail?.length) {
+            lines.push("", "Boot log tail:");
+            lines.push(...state.bootLogTail.slice(-12));
+          }
+          if (state.disconnectLog?.length) {
+            lines.push("", "Recent disconnects:");
+            for (const d of state.disconnectLog.slice(-8)) {
+              const ts = (d.ts || "").slice(11, 19);
+              lines.push(`${ts}  ${d.reason || "?"}  ${d.detail || ""}`);
+            }
+          }
+          return lines.join("\n");
+        }
+
+        if (health.status_error) {
+          lines.push(`API busy — status poll slow (${health.status_error})`);
+          lines.push("");
+        }
+        if (health.note) {
+          lines.push(health.note);
+          lines.push("");
+        }
+
+        if (!state.logs.length) {
+          return lines.length
+            ? lines.join("\n") + "\n\nNo pipeline events yet — click Run research."
+            : "No events yet — click Run research.";
+        }
+        const trail = state.logs.map((l) => `${(l.ts || "").slice(11, 19)}  ${(l.step || "-").padEnd(11)}  ${l.message}`).join("\n");
+        return lines.length ? lines.join("\n") + "\n" + trail : trail;
+      }
+
+      function pulseLabel(st) {
+        if (state.busy) return `Working: ${state.busy}…`;
+        if (st === "running") return "Run in progress";
+        return `Ready · refresh ${state.lastRefreshMs || "—"}ms`;
+      }
+
+      function setHtml(el, html) {
+        if (!el) return;
+        if (el.innerHTML !== html) el.innerHTML = html;
+      }
+
+      function patchLiveOnly() {
+        // Any DOM write clears browser text selection — freeze the UI while busy.
+        if (userIsBusy()) return;
+
+        const bot = selected();
+        const st = botState(bot);
+        const reachable = Boolean(bot?.health?.reachable);
+        const status = bot?.status;
+
+        const pulse = document.getElementById("pulse-text");
+        if (pulse) pulse.textContent = pulseLabel(st);
+        const pulseWrap = document.getElementById("pulse");
+        if (pulseWrap) pulseWrap.classList.toggle("busy", Boolean(state.busy || st === "running"));
+
+        const trail = document.getElementById("live-trail");
+        if (trail) {
+          const next = logsText(bot);
+          if (trail.textContent !== next) {
+            const stick = trail.scrollTop + trail.clientHeight >= trail.scrollHeight - 40;
+            trail.textContent = next;
+            if (stick) trail.scrollTop = trail.scrollHeight;
+          }
+        }
+
+        app.querySelectorAll("[data-select]").forEach((el) => {
+          const b = state.bots.find((x) => x.id === el.dataset.select);
+          if (!b) return;
+          const pill = el.querySelector(".pill");
+          const meta = el.querySelectorAll(".meta span");
+          if (pill) {
+            pill.className = `pill ${botState(b)}`;
+            pill.textContent = botState(b);
+          }
+          if (meta[1]) meta[1].textContent = b.health?.reachable ? "API up" : "API down";
+          if (meta[2]) meta[2].textContent = b.status?.current_step || b.status?.last_action || "—";
+          el.classList.toggle("active", b.id === state.selectedId);
+        });
+
+        const hint = document.getElementById("panel-hint");
+        if (hint && bot) {
+          hint.innerHTML = `
+            <span class="pill ${st}">${st}</span>
+            <span>${esc(status?.current_step || status?.last_action || "waiting")}</span>
+            ${status?.usage ? ` · ${status.usage.sessions_remaining} sessions left` : ""}
+            ${status?.last_error ? ` · ${esc(status.last_error)}` : ""}`;
+        }
+
+        const progress = bot ? pipelineProgress(bot) : null;
+        setHtml(document.getElementById("progress-mount"), progress ? `
+          <div class="progress-wrap">
+            <div class="progress-meta">
+              <span>${esc(progress.label)}</span>
+              <span>${progress.pct}%</span>
+            </div>
+            <div class="progress-track"><div class="progress-fill ${progress.running ? "running" : ""}" style="width:${progress.pct}%"></div></div>
+          </div>
+          ${progress.running ? `<div class="status-banner"><strong>Live status</strong>${esc(progress.label)}. Chromium may be open — the trail updates every few seconds.</div>` : ""}
+        ` : "");
+
+        setHtml(document.getElementById("steps-mount"), !bot ? "" : `
+          <div class="steps">
+            ${[
+              ["boot", "Boot"],
+              ["ingest", "Ingest"],
+              ["filter", "Filter"],
+              ["multimodal", "Analyze"],
+              ["synthesize", "Synthesize"],
+              ["done", "Done"],
+            ].map(([id, label]) => {
+              const cls = stepStatus(bot, id);
+              return `<div class="step ${cls}"><strong>${label}</strong>${cls || "waiting"}</div>`;
+            }).join("")}
+          </div>`);
+
+        setHtml(document.getElementById("catch-mount"), bot?.id === "instagram" ? renderCaught() : "");
+
+        const arts = document.getElementById("artifacts-mount");
+        if (arts) {
+          const next = (status?.artifacts || []).length
+            ? status.artifacts.map((a) => `<div><strong>${a.kind}</strong><br/><code>${a.path}</code></div>`).join("")
+            : `<span class="empty">None yet</span>`;
+          setHtml(arts, next);
+        }
+
+        setHtml(document.getElementById("outputs-mount"), bot?.id === "instagram" ? renderOutputs() : "");
+        syncDraftsFromDom();
+        setHtml(document.getElementById("ix-mount"), bot?.id === "instagram" ? renderInteractions() : "");
+        bindSoft();
+
+        const panel = app.querySelector(".panel");
+        if (panel) {
+          panel.querySelectorAll("[data-act]").forEach((btn) => {
+            const name = btn.dataset.act;
+            if (name === "boot") btn.disabled = Boolean(state.busy);
+            if (name === "live") btn.disabled = Boolean(state.busy || !reachable);
+            if (name === "pause") btn.disabled = Boolean(state.busy || !reachable || st !== "running");
+            if (name === "resume") btn.disabled = Boolean(state.busy || !reachable || st !== "paused");
+            if (name === "stop") btn.disabled = Boolean(state.busy || !reachable || (st !== "running" && st !== "paused"));
+            if (name === "propose" || name === "exec-approved") btn.disabled = Boolean(!reachable || state.busy);
+            if (name === "copy-logs") btn.disabled = !state.logs.length;
+          });
+        }
+      }
+
+      function fillStatusMounts() {
+        // Used after a full render — never gated on userIsBusy (DOM was just rebuilt).
+        const bot = selected();
+        const st = botState(bot);
+        const progress = bot ? pipelineProgress(bot) : null;
+        setHtml(document.getElementById("progress-mount"), progress ? `
+          <div class="progress-wrap">
+            <div class="progress-meta">
+              <span>${esc(progress.label)}</span>
+              <span>${progress.pct}%</span>
+            </div>
+            <div class="progress-track"><div class="progress-fill ${progress.running ? "running" : ""}" style="width:${progress.pct}%"></div></div>
+          </div>
+          ${progress.running ? `<div class="status-banner"><strong>Live status</strong>${esc(progress.label)}. Chromium may be open — the trail updates every few seconds.</div>` : ""}
+        ` : "");
+        setHtml(document.getElementById("steps-mount"), !bot ? "" : `
+          <div class="steps">
+            ${[
+              ["boot", "Boot"],
+              ["ingest", "Ingest"],
+              ["filter", "Filter"],
+              ["multimodal", "Analyze"],
+              ["synthesize", "Synthesize"],
+              ["done", "Done"],
+            ].map(([id, label]) => {
+              const cls = stepStatus(bot, id);
+              return `<div class="step ${cls}"><strong>${label}</strong>${cls || "waiting"}</div>`;
+            }).join("")}
+          </div>`);
+      }
+
       function render() {
+        syncDraftsFromDom();
         const bot = selected();
         const st = botState(bot);
         const reachable = Boolean(bot?.health?.reachable);
         const status = bot?.status;
         const dir = state.direction;
-        const pulseText = state.busy
-          ? `Working: ${state.busy}…`
-          : st === "running"
-            ? "Run in progress"
-            : `Ready · refresh ${state.lastRefreshMs || "—"}ms`;
+        const pulseText = pulseLabel(st);
 
         const fleetHtml = state.loading
           ? `<p class="empty skeleton">Loading fleet…</p>`
@@ -537,25 +1123,10 @@
                 </div>
               </button>`).join("")}</section>`;
 
-        const stepsHtml = !bot ? "" : `
-          <div class="steps">
-            ${[
-              ["boot", "Boot"],
-              ["ingest", "Ingest"],
-              ["filter", "Filter"],
-              ["multimodal", "Analyze"],
-              ["synthesize", "Synthesize"],
-              ["done", "Done"],
-            ].map(([id, label]) => {
-              const cls = stepStatus(bot, id);
-              return `<div class="step ${cls}"><strong>${label}</strong>${cls || "waiting"}</div>`;
-            }).join("")}
-          </div>`;
-
         const domainHtml = (dir && bot?.id === "instagram") ? `
           <div class="domain-card">
             <h5>Domain focus</h5>
-            <p><strong>${esc(dir.brand_name || "Agency")}</strong> · ${esc(dir.business_type || "Software agency")} · ${esc(dir.region || "Global")}</p>
+            <p><strong>${esc(dir.brand_name || "Agency")}</strong> · ${esc(dir.business_type || "Software agency")} · ${esc(dir.region || "Global")}${dir.website ? ` · <a href="${esc(dir.website)}" target="_blank" rel="noreferrer">${esc(dir.website.replace(/^https?:\/\//, ""))}</a>` : ""}</p>
             <div class="tags">
               ${(dir.content_pillars || []).slice(0, 5).map((p) => `<span class="tag">${esc(p)}</span>`).join("")}
               ${(dir.competitor_hashtags || []).slice(0, 5).map((h) => `<span class="tag">${esc(h)}</span>`).join("")}
@@ -563,11 +1134,11 @@
           </div>` : "";
 
         const panelHtml = !bot ? `<p class="empty">No bots registered.</p>` : `
-          <section class="panel">
+          <section class="panel" data-shell="1">
             <div class="panel-head">
               <div>
                 <h3>${bot.name}</h3>
-                <p class="hint">
+                <p class="hint" id="panel-hint">
                   <span class="pill ${st}">${st}</span>
                   <span>${status?.current_step || status?.last_action || "waiting"}</span>
                   ${status?.usage ? ` · ${status.usage.sessions_remaining} sessions left` : ""}
@@ -584,24 +1155,25 @@
             </div>
 
             <div class="options">
-              <label><input type="checkbox" id="opt-sample" ${state.sample ? "checked" : ""} /> Use sample data (no login)</label>
               <label><input type="checkbox" id="opt-offline" ${state.offline ? "checked" : ""} /> Offline heuristics</label>
               <label><input type="checkbox" id="opt-multimodal" ${state.multimodal ? "checked" : ""} /> Analyze shortlisted media</label>
-              <label><input type="checkbox" id="opt-engage" ${state.engage && !state.sample ? "checked" : ""} ${state.sample ? "disabled" : ""} /> Engage after research</label>
+              <label><input type="checkbox" id="opt-engage" ${state.engage ? "checked" : ""} /> Engage after research</label>
             </div>
-            ${!state.sample ? `<div class="banner info">Live research opens Chromium. Log into Instagram if asked — session is saved. Media analysis runs only on filtered top posts.</div>` : `<div class="banner info">Sample mode uses bundled JSON only — fast smoke test.</div>`}
+            <div class="banner info">Live research opens Chromium. Log into Instagram if asked — session is saved. Media analysis runs only on filtered top posts.</div>
 
-            ${stepsHtml}
+            <div id="progress-mount"></div>
+            <div id="steps-mount"></div>
             ${domainHtml}
 
             <div class="grid">
               <div>
-                <h4>Live trail</h4>
-                <pre class="logs">${state.logs.length
-                  ? state.logs.map((l) => `${(l.ts || "").slice(11, 19)}  ${(l.step || "-").padEnd(11)}  ${l.message}`).join("\n")
-                  : (reachable ? "No events yet — click Run research." : "Bot API offline — click Boot API.")}</pre>
+                <div class="logs-head">
+                  <h4>Live trail</h4>
+                  <button type="button" class="ghost" data-act="copy-logs">Copy logs</button>
+                </div>
+                <pre class="logs" id="live-trail">${esc(logsText(bot))}</pre>
                 <h4 style="margin-top:0.9rem">Artifacts</h4>
-                <div class="artifacts">${(status?.artifacts || []).length
+                <div class="artifacts" id="artifacts-mount">${(status?.artifacts || []).length
                   ? status.artifacts.map((a) => `<div><strong>${a.kind}</strong><br/><code>${a.path}</code></div>`).join("")
                   : `<span class="empty">None yet</span>`}</div>
               </div>
@@ -611,6 +1183,7 @@
                   <form id="dir-form">
                     <div class="field"><label>Brand name</label><input name="brand_name" value="${esc(dir.brand_name || "")}" /></div>
                     <div class="field"><label>Business type</label><input name="business_type" value="${esc(dir.business_type || "")}" /></div>
+                    <div class="field"><label>Website</label><input name="website" value="${esc(dir.website || "")}" placeholder="https://valnee.com" /></div>
                     <div class="field"><label>Region</label><input name="region" value="${esc(dir.region || "")}" placeholder="e.g. India, US, Europe" /></div>
                     <div class="field"><label>Goals</label><textarea name="goals">${esc(dir.goals || "")}</textarea></div>
                     <div class="field"><label>Hashtags (one per line)</label><textarea name="hashtags">${esc((dir.competitor_hashtags || []).join("\n"))}</textarea></div>
@@ -621,8 +1194,9 @@
                   </form>` : `<p class="empty">Direction unavailable until the bot API is up.</p>`}
               </div>
             </div>
-            ${bot.id === "instagram" ? renderOutputs() : ""}
-            ${bot.id === "instagram" ? renderInteractions() : ""}
+            <div id="catch-mount">${bot.id === "instagram" ? renderCaught() : ""}</div>
+            <div id="outputs-mount">${bot.id === "instagram" ? renderOutputs() : ""}</div>
+            <div id="ix-mount">${bot.id === "instagram" ? renderInteractions() : ""}</div>
           </section>`;
 
         app.innerHTML = `
@@ -642,62 +1216,23 @@
           ${panelHtml}
         `;
 
+        fillStatusMounts();
         bind();
+        state.painted = true;
       }
 
-      function bind() {
-        app.querySelectorAll("[data-select]").forEach((el) => {
-          el.onclick = () => {
-            state.selectedId = el.dataset.select;
-            state.notice = "";
-            state.selectedRunId = null;
-            state.outputs = null;
-            refreshDetail(true);
-          };
-        });
-        const sample = app.querySelector("#opt-sample");
-        const offline = app.querySelector("#opt-offline");
-        const multimodal = app.querySelector("#opt-multimodal");
-        const engage = app.querySelector("#opt-engage");
-        if (sample) sample.onchange = () => { state.sample = sample.checked; if (sample.checked) state.engage = false; render(); };
-        if (offline) offline.onchange = () => { state.offline = offline.checked; };
-        if (multimodal) multimodal.onchange = () => { state.multimodal = multimodal.checked; };
-        if (engage) engage.onchange = () => { state.engage = engage.checked; };
-
-        app.querySelectorAll("[data-tab]").forEach((btn) => {
-          btn.onclick = () => { state.outputTab = btn.dataset.tab; render(); };
-        });
-        const runSelect = app.querySelector("#run-select");
-        if (runSelect) {
-          runSelect.onchange = () => {
-            state.selectedRunId = runSelect.value || null;
-            refreshDetail(true);
-          };
-        }
-
-        app.querySelectorAll("[data-act]").forEach((btn) => {
-          btn.onclick = () => {
-            const bot = selected();
-            if (!bot) return;
-            const name = btn.dataset.act;
-            if (name === "boot") return act("boot", () => api(`/api/bots/${bot.id}/process/start`, { method: "POST" }));
-            if (name === "live") return act("live", () => api(`/api/bots/${bot.id}/run`, { method: "POST", body: JSON.stringify(runBody()) }));
-            if (name === "pause") return act("pause", () => api(`/api/bots/${bot.id}/pause`, { method: "POST" }));
-            if (name === "resume") return act("resume", () => api(`/api/bots/${bot.id}/resume`, { method: "POST" }));
-            if (name === "stop") return act("stop", () => api(`/api/bots/${bot.id}/stop`, { method: "POST" }));
-            if (name === "propose") return act("propose", () => api(`/api/bots/${bot.id}/interactions/propose`, { method: "POST", body: "{}" }));
-            if (name === "exec-approved") return act("exec-approved", () => api(`/api/bots/${bot.id}/interactions/execute-approved`, { method: "POST", body: JSON.stringify({ dry_run: false }) }));
-          };
-        });
-
+      function bindInteractions() {
         app.querySelectorAll(".ix-item").forEach((el) => {
           const id = el.dataset.ixId;
+          const draftEl = el.querySelector("textarea[data-draft]");
+          if (draftEl && id) {
+            draftEl.oninput = () => { state.ixDrafts[id] = draftEl.value; };
+          }
           el.querySelectorAll("button[data-ix]").forEach((btn) => {
             btn.onclick = () => {
               const bot = selected();
               if (!bot || !id) return;
-              const draftEl = el.querySelector("textarea[data-draft]");
-              const text = draftEl ? draftEl.value : null;
+              const text = draftEl ? draftEl.value : (state.ixDrafts[id] ?? null);
               if (btn.dataset.ix === "approve") {
                 return act("approve", async () => {
                   if (text != null) {
@@ -710,47 +1245,146 @@
                     method: "POST",
                     body: JSON.stringify({ final_text: text }),
                   });
+                  delete state.ixDrafts[id];
                 });
               }
               if (btn.dataset.ix === "skip") {
-                return act("skip", () => api(`/api/bots/${bot.id}/interactions/${id}/skip`, { method: "POST", body: "{}" }));
+                return act("skip", async () => {
+                  await api(`/api/bots/${bot.id}/interactions/${id}/skip`, { method: "POST", body: "{}" });
+                  delete state.ixDrafts[id];
+                });
               }
               if (btn.dataset.ix === "execute") {
-                return act("execute", () => api(`/api/bots/${bot.id}/interactions/${id}/execute`, {
-                  method: "POST",
-                  body: JSON.stringify({ dry_run: false }),
-                }));
+                return act("execute", async () => {
+                  await api(`/api/bots/${bot.id}/interactions/${id}/execute`, {
+                    method: "POST",
+                    body: JSON.stringify({ dry_run: false }),
+                  });
+                  delete state.ixDrafts[id];
+                });
               }
             };
           });
         });
+      }
+
+      function bindSoft() {
+        // Re-bind only regions that patchLiveOnly may have replaced
+        app.querySelectorAll("[data-tab]").forEach((btn) => {
+          btn.onclick = () => {
+            state.outputTab = btn.dataset.tab;
+            state.forceFullRender = true;
+            render();
+          };
+        });
+        const runSelect = app.querySelector("#run-select");
+        if (runSelect) {
+          runSelect.onchange = () => {
+            state.selectedRunId = runSelect.value || null;
+            state.forceFullRender = true;
+            refreshDetail(true);
+          };
+        }
+        bindInteractions();
+      }
+
+      function bind() {
+        app.querySelectorAll("[data-select]").forEach((el) => {
+          el.onclick = () => {
+            state.selectedId = el.dataset.select;
+            state.notice = "";
+            state.selectedRunId = null;
+            state.outputs = null;
+            state.forceFullRender = true;
+            refreshDetail(true);
+          };
+        });
+        const offline = app.querySelector("#opt-offline");
+        const multimodal = app.querySelector("#opt-multimodal");
+        const engage = app.querySelector("#opt-engage");
+        if (offline) offline.onchange = () => { state.offline = offline.checked; };
+        if (multimodal) multimodal.onchange = () => { state.multimodal = multimodal.checked; };
+        if (engage) engage.onchange = () => { state.engage = engage.checked; };
+
+        app.querySelectorAll("[data-act]").forEach((btn) => {
+          btn.onclick = () => {
+            const bot = selected();
+            if (!bot) return;
+            const name = btn.dataset.act;
+            if (name === "boot") return act("boot", () => api(`/api/bots/${bot.id}/process/start`, { method: "POST" }));
+            if (name === "live") return act("live", () => api(`/api/bots/${bot.id}/run`, { method: "POST", body: JSON.stringify(runBody()) }));
+            if (name === "pause") return act("pause", () => api(`/api/bots/${bot.id}/pause`, { method: "POST" }));
+            if (name === "resume") return act("resume", () => api(`/api/bots/${bot.id}/resume`, { method: "POST" }));
+            if (name === "stop") return act("stop", () => api(`/api/bots/${bot.id}/stop`, { method: "POST" }));
+            if (name === "propose") return act("propose", () => api(`/api/bots/${bot.id}/interactions/propose`, { method: "POST", body: "{}" }));
+            if (name === "exec-approved") return act("exec-approved", async () => {
+              const res = await api(`/api/bots/${bot.id}/interactions/execute-approved`, { method: "POST", body: JSON.stringify({ dry_run: false }) });
+              if (res?.scripted_summary) state.notice = res.scripted_summary;
+              if (res?.scripted_health) state.scriptedHealth = res.scripted_health;
+              return res;
+            });
+            if (name === "resume-engage") {
+              if (!window.confirm("Clear the engage pause and continue?")) return;
+              const rotateProfile = window.confirm(
+                "Also rotate to the next Chromium profile slot?\n\nUse this if IG is still sticky after a challenge. You may need to log into Instagram again in the new window."
+              );
+              return act("resume-engage", async () => {
+                const res = await api(`/api/bots/${bot.id}/engage/circuit/clear`, {
+                  method: "POST",
+                  body: JSON.stringify({ rotate_profile: Boolean(rotateProfile) }),
+                });
+                state.circuit = res;
+                return res;
+              });
+            }
+            if (name === "copy-logs") {
+              const text = state.logs.length
+                ? state.logs.map((l) => `${l.ts || ""}  ${(l.step || "-").padEnd(11)}  ${l.message}`).join("\n")
+                : (document.getElementById("live-trail")?.textContent || "");
+              const mark = () => {
+                btn.textContent = "Copied";
+                btn.classList.add("copied");
+                setTimeout(() => { btn.textContent = "Copy logs"; btn.classList.remove("copied"); }, 1400);
+              };
+              if (navigator.clipboard?.writeText) {
+                return navigator.clipboard.writeText(text).then(mark).catch(() => {
+                  state.error = "Clipboard blocked — select the log text manually.";
+                });
+              }
+              const ta = document.createElement("textarea");
+              ta.value = text;
+              document.body.appendChild(ta);
+              ta.select();
+              try { document.execCommand("copy"); mark(); }
+              catch { state.error = "Could not copy logs."; }
+              finally { ta.remove(); }
+              return;
+            }
+          };
+        });
 
         const form = app.querySelector("#dir-form");
         if (form) {
+          form.oninput = () => { syncDraftsFromDom(); };
           form.onsubmit = (e) => {
             e.preventDefault();
             const bot = selected();
             if (!bot || !state.direction) return;
-            const fd = new FormData(form);
-            const next = {
-              ...state.direction,
-              brand_name: fd.get("brand_name"),
-              business_type: fd.get("business_type"),
-              region: fd.get("region"),
-              goals: fd.get("goals"),
-              constraints: fd.get("constraints"),
-              brand_voice: fd.get("brand_voice"),
-              competitor_hashtags: String(fd.get("hashtags") || "").split("\n").map((s) => s.trim()).filter(Boolean),
-              content_pillars: String(fd.get("pillars") || "").split("\n").map((s) => s.trim()).filter(Boolean),
-            };
+            syncDraftsFromDom();
+            const next = { ...state.direction };
             act("direction", () => api(`/api/bots/${bot.id}/direction`, { method: "PUT", body: JSON.stringify(next) }));
           };
         }
+
+        bindSoft();
+        syncIngestCommentModal();
       }
 
       function pollDelay() {
+        if (state.live?.pending_comment) return 800;
+        if (userIsBusy()) return 5000;
         const st = botState(selected());
-        if (state.busy || st === "running" || st === "paused") return 1200;
+        if (state.busy || st === "running" || st === "paused") return 1500;
         return 4000;
       }
 

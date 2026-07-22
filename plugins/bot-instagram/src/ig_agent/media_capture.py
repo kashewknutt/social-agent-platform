@@ -76,7 +76,7 @@ async def capture_media_for_posts(
     Mutates and returns the same post dicts with media_path / screenshot_path set
     when capture succeeds.
     """
-    from browser_use import BrowserSession
+    from ig_agent.browser_factory import make_browser_session, safe_kill
 
     cfg = settings or get_settings()
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)
@@ -91,10 +91,7 @@ async def capture_media_for_posts(
         progress("No shortlisted posts with URLs to capture")
         return posts
 
-    browser = BrowserSession(
-        headless=True,
-        user_data_dir=str(cfg.browser_user_data_dir),
-    )
+    browser = make_browser_session(cfg, headless=True)
     try:
         await browser.start()
         for idx, post in enumerate(targets, start=1):
@@ -131,9 +128,6 @@ async def capture_media_for_posts(
                 progress(f"Capture failed for post {idx}/{len(targets)} - skipping")
                 continue
     finally:
-        try:
-            await browser.kill()
-        except Exception:
-            pass
+        await safe_kill(browser)
 
     return posts

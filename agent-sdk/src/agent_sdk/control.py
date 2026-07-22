@@ -62,6 +62,7 @@ class BotController:
         self.last_error: str | None = None
         self.run_id: str | None = None
         self.mode: RunMode | None = None
+        self.live: dict[str, Any] | None = None
         self.updated_at = datetime.now().isoformat()
 
         self._pause = asyncio.Event()
@@ -88,8 +89,67 @@ class BotController:
             mode=self.mode,
             usage=usage,
             artifacts=artifacts,
+            live=self.live,
             updated_at=self.updated_at,
         )
+
+    def set_live(self, payload: dict[str, Any] | None) -> None:
+        """Publish in-progress catch/score data for the Fleet live panel.
+
+        Logs a compact trail line whenever the visible live text changes.
+        """
+        prev_fp = self._live_fingerprint(self.live)
+        self.live = payload
+        self.updated_at = datetime.now().isoformat()
+        next_fp = self._live_fingerprint(payload)
+        if next_fp == prev_fp:
+            return
+        summary = self._live_summary(payload)
+        logger.info("live changed: %s", summary)
+        if self.events.run_id:
+            self.events.emit(summary, step="live", data={"live": payload or {}})
+
+    @staticmethod
+    def _live_fingerprint(payload: dict[str, Any] | None) -> str:
+        if not payload:
+            return ""
+        posts = payload.get("posts") or []
+        parts = [
+            str(payload.get("stage") or ""),
+            str(payload.get("caught") or 0),
+            str(payload.get("kept") or 0),
+            str(payload.get("rejected") or 0),
+        ]
+        for p in posts:
+            if not isinstance(p, dict):
+                continue
+            parts.append(str(p.get("post_url") or ""))
+            parts.append(str(p.get("relevance_score") if p.get("relevance_score") is not None else "—"))
+            parts.append((str(p.get("caption") or p.get("raw_text") or ""))[:120])
+        return "|".join(parts)
+
+    @staticmethod
+    def _live_summary(payload: dict[str, Any] | None) -> str:
+        if not payload:
+            return "live cleared"
+        stage = payload.get("stage") or "?"
+        caught = payload.get("caught") or 0
+        kept = payload.get("kept") or 0
+        rejected = payload.get("rejected") or 0
+        posts = [p for p in (payload.get("posts") or []) if isinstance(p, dict)]
+        bits: list[str] = [f"live[{stage}] {caught} caught · {kept} kept · {rejected} rejected"]
+        for i, p in enumerate(posts[:8], 1):
+            score = p.get("relevance_score")
+            score_s = str(score) if score is not None else "unscored"
+            url = (p.get("post_url") or "").strip()
+            cap = (p.get("caption") or p.get("raw_text") or "").strip().replace("\n", " ")
+            if len(cap) > 80:
+                cap = cap[:80] + "…"
+            label = url or cap or "(empty)"
+            bits.append(f"  #{i} {score_s} | {label}")
+        if len(posts) > 8:
+            bits.append(f"  … +{len(posts) - 8} more")
+        return "\n".join(bits)
 
     def get_direction(self) -> Direction:
         return self._load_direction()

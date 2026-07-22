@@ -33,6 +33,8 @@ class RunRequest(BaseModel):
 class Direction(BaseModel):
     brand_name: str = ""
     business_type: str = ""
+    website: str = ""
+    region: str = ""
     target_audience: list[str] = Field(default_factory=list)
     content_pillars: list[str] = Field(default_factory=list)
     brand_voice: str = ""
@@ -86,6 +88,7 @@ class StatusPayload(BaseModel):
     mode: RunMode | None = None
     usage: UsageInfo | None = None
     artifacts: list[ArtifactInfo] = Field(default_factory=list)
+    live: dict[str, Any] | None = None
     updated_at: str = Field(default_factory=lambda: datetime.now().isoformat())
 
 
