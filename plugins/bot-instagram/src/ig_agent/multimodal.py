@@ -95,11 +95,25 @@ def analyze_video(
     return {"video_path": str(video_path), "analysis": content}
 
 
+_ENGAGEMENT_DESCRIBE_PROMPT = (
+    "Describe this Instagram Reel/post in 2-4 concrete sentences for someone who is "
+    "about to write a comment or DM reacting to it, without having watched it "
+    "themselves. Call out specific actions, on-screen text/captions, numbers, tools, "
+    "or a spoken point you can make out, plus the overall hook and pacing. Be "
+    "concrete and specific — never a vague 'nice vibe' summary."
+)
+
+
 def analyze_top_posts(
     filtered_posts: list[dict[str, Any]],
     settings: Settings | None = None,
 ) -> list[dict[str, Any]]:
-    """Run multimodal analysis on top-N filtered posts with local media."""
+    """Run multimodal analysis on top-N filtered posts with local media.
+
+    Mutates each analyzed post in place with a `video_description` field so
+    downstream comment/DM drafting (see propose.py) has something concrete
+    and specific to react to, instead of just an often-empty caption.
+    """
     cfg = settings or get_settings()
     if not cfg.enable_multimodal:
         return []
@@ -111,14 +125,10 @@ def analyze_top_posts(
         reverse=True,
     )[:top_n]
 
-    prompt = (
-        "Analyze this Instagram Reel/post for: hook structure, visual style, "
-        "text overlays, pacing, and how a B2B software agency could adapt it."
-    )
     notes: list[dict[str, Any]] = []
 
     for post in sorted_posts:
-        media_path = post.get("media_path") or post.get("screenshot_path")
+        media_path = post.get("video_path") or post.get("media_path") or post.get("screenshot_path")
         if not media_path:
             continue
         path = Path(media_path)
@@ -128,12 +138,19 @@ def analyze_top_posts(
             continue
 
         suffix = path.suffix.lower()
-        if suffix in (".mp4", ".mov", ".webm", ".avi"):
-            note = analyze_video(path, prompt, cfg)
-        elif suffix in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
-            note = analyze_image(path, prompt, cfg)
-        else:
+        try:
+            if suffix in (".mp4", ".mov", ".webm", ".avi"):
+                note = analyze_video(path, _ENGAGEMENT_DESCRIBE_PROMPT, cfg)
+            elif suffix in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
+                note = analyze_image(path, _ENGAGEMENT_DESCRIBE_PROMPT, cfg)
+            else:
+                continue
+        except Exception:
             continue
+
+        description = (note.get("analysis") or "").strip()
+        if description:
+            post["video_description"] = description
 
         note["post_url"] = post.get("post_url")
         note["relevance_score"] = post.get("relevance_score")
@@ -146,9 +163,30 @@ def analyze_from_filtered_file(
     filtered_path: Path,
     settings: Settings | None = None,
 ) -> list[dict[str, Any]]:
-    """Load filtered JSON and run multimodal on top posts."""
+    """Load filtered JSON, run multimodal on top posts, and persist any
+    resulting `video_description` back into the same file (both `posts` and
+    `all_scored`) — matched by post_url — so propose_interactions, which
+    reloads posts from disk, can use it to ground comment/DM drafts in the
+    actual video content instead of guessing from a sparse/empty caption.
+    """
     data = json.loads(filtered_path.read_text(encoding="utf-8"))
-    return analyze_top_posts(data.get("posts", []), settings)
+    all_scored = data.get("all_scored") or data.get("posts") or []
+    notes = analyze_top_posts(all_scored, settings)
+
+    descriptions = {
+        p.get("post_url"): p.get("video_description")
+        for p in all_scored
+        if p.get("post_url") and p.get("video_description")
+    }
+    if descriptions:
+        for key in ("posts", "all_scored"):
+            for p in data.get(key) or []:
+                desc = descriptions.get(p.get("post_url"))
+                if desc:
+                    p["video_description"] = desc
+        filtered_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    return notes
 
 
 def _extract_json_object(text: str) -> dict[str, Any] | None:

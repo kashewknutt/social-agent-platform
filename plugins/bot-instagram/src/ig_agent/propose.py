@@ -121,6 +121,20 @@ _BANNED_PHRASES = (
     "so true",
     "needed that reminder",
     "shipping > overthinking",
+    "watched it twice",
+    "watched this twice",
+    "had to watch this twice",
+    "watched it a few times",
+    "watched this a couple times",
+    "on repeat",
+    "saved this",
+    "saving this",
+    "bookmarking this",
+    "nice one",
+    "great content",
+    "this is gold",
+    "pure gold",
+    "underrated",
 )
 _BANNED_PHRASES_BLOCK = "\n".join(f"- \"{p}\"" for p in _BANNED_PHRASES)
 
@@ -201,19 +215,27 @@ def _system_prompt_comment(locale: Locale, agency: dict[str, Any]) -> str:
         "not a brand account, not a marketer. You comment the way you'd actually text a "
         "friend: a little casual, a little imperfect, always specific.\n"
         f"{_locale_voice_block(locale)}\n\n"
-        "HOW TO WRITE (read the caption below FIRST, then react to it):\n"
+        "HOW TO WRITE (read everything below FIRST, then react to it):\n"
         "1. Output ONLY the comment text. No quotes, no labels, no explanation.\n"
         "2. 1-2 short sentences, under 180 characters.\n"
-        "3. Pull ONE concrete detail from their actual caption (a number, a tool, a "
-        "decision, a specific line) and react to THAT in your own words. Do not "
-        "generalize it into a life lesson or motivational one-liner.\n"
-        "4. End with a genuine, specific observation or a short, low-stakes question. "
+        "3. If a video/image description is given below, that IS what you watched. "
+        "Pull ONE concrete detail from it (a specific action, number, tool, on-screen "
+        "text, moment) and react to THAT in your own words, like you actually saw it "
+        "happen. If no video description is given, use the caption the same way "
+        "instead. Never generalize the detail into a life lesson or motivational "
+        "one-liner, and never just restate/summarize what happened, react to it.\n"
+        "4. Every comment must be a DIFFERENT reaction shaped by that specific post. "
+        "Do not default to a generic all-purpose line ('watched it twice', 'saved "
+        "this', 'nice one', etc.) just because you don't have much to go on, if the "
+        "context is thin, ask a short, genuinely curious question about the specific "
+        "thing shown instead of praising it vaguely.\n"
+        "5. End with a genuine, specific observation or a short, low-stakes question. "
         "Never a call-to-action, never a sales pitch.\n"
-        "5. At most ONE emoji, only if it truly fits. Most comments should use zero.\n"
-        "6. Do NOT mention Valnee, pitch anything, or reference being an assistant/bot/AI.\n"
-        "7. " + _voice_guardrails_block() + "\n"
+        "6. At most ONE emoji, only if it truly fits. Most comments should use zero.\n"
+        "7. Do NOT mention Valnee, pitch anything, or reference being an assistant/bot/AI.\n"
+        "8. " + _voice_guardrails_block() + "\n"
         "If you catch yourself about to write one of those, stop and say something more "
-        "specific about THIS caption instead."
+        "specific about THIS post instead."
     )
 
 
@@ -226,8 +248,10 @@ def _system_prompt_dm(locale: Locale, agency: dict[str, Any]) -> str:
         "HOW TO WRITE:\n"
         "1. Output ONLY the DM text. No quotes, no labels, no explanation.\n"
         "2. 2-4 short sentences, under 320 characters, mobile-readable.\n"
-        "3. Open by reacting to ONE concrete, specific detail from their post. Quote or "
-        "reference it directly. Do not open with a generic compliment.\n"
+        "3. Open by reacting to ONE concrete, specific detail from their post, prefer "
+        "the video/image description below if one is given (that's what you actually "
+        "watched), otherwise use the caption. Reference it directly and specifically. "
+        "Do not open with a generic compliment or a vague 'loved this'.\n"
         "4. Weave in who you are in ONE short clause, naturally (e.g. 'I build MVPs for "
         "founders over at valnee.com'). Never paste goals, pillars, or a value-prop list.\n"
         "5. End with exactly ONE easy question tied to what THEY posted. Not a generic "
@@ -386,9 +410,21 @@ def _post_context_block(post: dict[str, Any]) -> str:
         f"Post type: {post.get('post_type') or 'post'}",
         f"Caption:\n{caption[:600]}",
     ]
+    video_desc = (post.get("video_description") or "").strip()
+    if video_desc:
+        lines.append(
+            "What actually happens in the video/image (from someone who watched it, "
+            f"this is your best source of concrete detail):\n{video_desc[:600]}"
+        )
     hook = post.get("adaptable_hook")
     if hook:
         lines.append(f"Specific detail worth reacting to (internal note): {hook}")
+    if not video_desc and caption == "(no caption)":
+        lines.append(
+            "NOTE: no caption and no video description are available for this post. "
+            "Do not invent fake specific details. Keep the reaction short and genuinely "
+            "curious instead (e.g. a real question), never generic praise."
+        )
     return "\n".join(lines)
 
 

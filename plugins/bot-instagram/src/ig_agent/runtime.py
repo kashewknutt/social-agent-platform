@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -23,12 +24,44 @@ from ig_agent.config import (
 from ig_agent.engage import execute_auto_interactions
 from ig_agent.filter import filter_raw_file, load_agency_context
 from ig_agent.ingest import capture_trends_with_delays
+from ig_agent.media_capture import capture_media_for_posts
 from ig_agent.multimodal import analyze_from_filtered_file
 from ig_agent.persist import init_db, list_interactions
 from ig_agent.posts import normalize_posts
 from ig_agent.propose import propose_interactions
 from ig_agent.safety import can_start_scroll_session, session_cooldown_seconds, usage_snapshot
 from ig_agent.synthesize import synthesize_dashboard
+
+logger = logging.getLogger("ig_agent.runtime")
+
+
+def _merge_posts_into_filtered_file(
+    filtered_path: Path,
+    enriched_posts: list[dict[str, Any]],
+    fields: tuple[str, ...],
+) -> None:
+    """Write specific fields from in-memory post dicts back into the on-disk
+    filtered JSON, matched by post_url, so a later disk reload (multimodal
+    analysis, propose_interactions) can see them."""
+    try:
+        data = json.loads(filtered_path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    by_url = {p.get("post_url"): p for p in enriched_posts if p.get("post_url")}
+    if not by_url:
+        return
+    changed = False
+    for key in ("posts", "all_scored"):
+        for p in data.get(key) or []:
+            src = by_url.get(p.get("post_url"))
+            if not src:
+                continue
+            for field in fields:
+                if src.get(field):
+                    p[field] = src[field]
+                    changed = True
+    if changed:
+        filtered_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 DEFAULT_CONSTRAINTS = (
     "While browsing research, like and follow relevant creator posts live. "
@@ -321,7 +354,35 @@ async def run_pipeline(controller: BotController, request: RunRequest) -> None:
         multimodal_notes = None
         if request.multimodal or settings.enable_multimodal:
             await controller.checkpoint()
-            controller.set_step("multimodal", "Running multimodal analysis")
+            # Ground comment/DM drafting in the actual video/image, not just a
+            # (often empty) caption. Capped to cover the realistic daily
+            # comment+DM shortlist so most HITL drafts get real grounding.
+            media_cap = min(
+                max(settings.multimodal_top_n, settings.max_comments_per_day, settings.max_dms_per_day),
+                15,
+            )
+            shortlist = sorted(
+                kept_posts, key=lambda p: int(p.get("relevance_score") or 0), reverse=True
+            )[:media_cap]
+            if shortlist:
+                controller.set_step(
+                    "multimodal", f"Capturing media for {len(shortlist)} shortlisted post(s)"
+                )
+                try:
+                    shortlist = await capture_media_for_posts(
+                        shortlist,
+                        settings=settings,
+                        on_progress=lambda msg: controller.set_step("multimodal", msg),
+                    )
+                except Exception as exc:
+                    logger.warning("Media capture failed: %s", exc)
+                    controller.set_step("multimodal", f"Media capture failed ({exc}) — continuing")
+                _merge_posts_into_filtered_file(
+                    filtered_path,
+                    shortlist,
+                    fields=("media_path", "screenshot_path", "video_path"),
+                )
+            controller.set_step("multimodal", "Analyzing captured media")
             multimodal_notes = await asyncio.to_thread(
                 analyze_from_filtered_file, filtered_path, settings
             )
