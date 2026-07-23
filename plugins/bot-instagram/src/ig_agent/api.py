@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
+import uuid
+from pathlib import Path
 from typing import Any
 
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile, File, Form
 from pydantic import BaseModel, Field
 
 from agent_sdk.api import create_control_app
@@ -18,7 +22,15 @@ from ig_agent.engage import (
     execute_interaction,
 )
 from ig_agent.scripted_actions import scripted_health_snapshot
-from ig_agent.config import FILTERED_DIR, RAW_DIR, REPORTS_DIR, get_settings
+from ig_agent.config import ANALYZER_UPLOAD_DIR, FILTERED_DIR, RAW_DIR, REPORTS_DIR, get_settings
+from ig_agent.analyzer_store import (
+    create_video_analysis,
+    delete_video_analysis,
+    get_video_analysis,
+    list_video_analyses,
+    update_video_analysis,
+)
+from ig_agent.filter import load_agency_context
 from ig_agent.persist import (
     approve_interaction,
     get_interaction,
@@ -32,6 +44,7 @@ from ig_agent.safety import usage_snapshot
 
 controller = build_controller()
 app = create_control_app(controller, title="Instagram Bot Control API")
+log = logging.getLogger("ig_agent.api.analyzer")
 
 
 def _file_outputs(run_id: str | None = None) -> dict[str, Any]:
@@ -372,6 +385,121 @@ def post_ingest_comment_decision(body: IngestCommentDecision) -> dict[str, Any]:
     if not submit_decision(approve=body.approve, text=body.text):
         raise HTTPException(409, "No pending ingest comment approval")
     return {"ok": True, "approve": body.approve}
+
+
+class AnalyzerUpdate(BaseModel):
+    title: str | None = None
+    caption: str | None = None
+    hashtags: list[str] | None = None
+    posted: bool | None = None
+    posted_username: str | None = None
+
+
+def _run_video_analysis(analysis_id: str, video_path: Path, context_note: str | None) -> None:
+    """Background worker: analyze the uploaded video, persist title/caption/hashtags."""
+    from ig_agent.multimodal import analyze_video_for_caption
+
+    try:
+        agency = load_agency_context()
+        result = analyze_video_for_caption(
+            video_path,
+            context_note=context_note,
+            agency=agency,
+        )
+        update_video_analysis(
+            analysis_id,
+            status="done",
+            title=result.get("title") or "",
+            caption=result.get("caption") or "",
+            hashtags=result.get("hashtags") or [],
+            raw_analysis=result.get("raw_analysis") or "",
+        )
+    except Exception as exc:  # noqa: BLE001 - surface any failure to the UI
+        log.exception("Video analysis failed for %s", analysis_id)
+        update_video_analysis(analysis_id, status="failed", error=str(exc))
+
+
+@app.post("/analyzer/upload")
+async def post_analyzer_upload(
+    file: UploadFile = File(...),
+    context_note: str | None = Form(default=None),
+) -> dict[str, Any]:
+    settings = get_settings()
+    max_bytes = settings.analyzer_max_upload_mb * 1024 * 1024
+
+    suffix = Path(file.filename or "video.mp4").suffix or ".mp4"
+    upload_dir = ANALYZER_UPLOAD_DIR / uuid.uuid4().hex
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    dest = upload_dir / f"video{suffix}"
+
+    size = 0
+    with dest.open("wb") as out:
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > max_bytes:
+                out.close()
+                dest.unlink(missing_ok=True)
+                try:
+                    upload_dir.rmdir()
+                except OSError:
+                    pass
+                raise HTTPException(
+                    413, f"Video exceeds {settings.analyzer_max_upload_mb}MB upload limit"
+                )
+            out.write(chunk)
+
+    row = create_video_analysis(
+        status="processing",
+        original_filename=file.filename,
+        video_path=str(dest),
+        context_note=context_note,
+    )
+    asyncio.create_task(
+        asyncio.to_thread(_run_video_analysis, row["id"], dest, context_note)
+    )
+    return row
+
+
+@app.get("/analyzer")
+def get_analyzer_list(status: str | None = None, posted: bool | None = None, limit: int = 100) -> dict[str, Any]:
+    items = list_video_analyses(status=status, posted=posted, limit=limit)
+    return {"items": items, "count": len(items)}
+
+
+@app.get("/analyzer/{analysis_id}")
+def get_analyzer_one(analysis_id: str) -> dict[str, Any]:
+    row = get_video_analysis(analysis_id)
+    if row is None:
+        raise HTTPException(404, f"Unknown analysis {analysis_id}")
+    return row
+
+
+@app.patch("/analyzer/{analysis_id}")
+def patch_analyzer_one(analysis_id: str, body: AnalyzerUpdate) -> dict[str, Any]:
+    row = get_video_analysis(analysis_id)
+    if row is None:
+        raise HTTPException(404, f"Unknown analysis {analysis_id}")
+    updated = update_video_analysis(
+        analysis_id,
+        title=body.title,
+        caption=body.caption,
+        hashtags=body.hashtags,
+        posted=body.posted,
+        posted_username=body.posted_username,
+    )
+    assert updated is not None
+    return updated
+
+
+@app.delete("/analyzer/{analysis_id}")
+def delete_analyzer_one(analysis_id: str) -> dict[str, Any]:
+    ok = delete_video_analysis(analysis_id)
+    if not ok:
+        raise HTTPException(404, f"Unknown analysis {analysis_id}")
+    return {"ok": True}
 
 
 def serve() -> None:

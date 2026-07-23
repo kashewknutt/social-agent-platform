@@ -19,6 +19,8 @@ MEDIA_DIR = DATA_DIR / "media"
 REPORTS_DIR = PROJECT_ROOT / "reports"
 AGENCY_CONTEXT_PATH = PROJECT_ROOT / "agency_context.json"
 DB_PATH = DATA_DIR / "interactions.db"
+ANALYZER_DB_PATH = DATA_DIR / "video_analyses.db"
+ANALYZER_UPLOAD_DIR = MEDIA_DIR / "uploads"
 
 _DEFAULT_CHROME_PATHS = {
     "win32": "C:/Program Files/Google/Chrome/Application/chrome.exe",
@@ -142,8 +144,13 @@ class Settings:
         default_factory=lambda: float(os.getenv("HASHTAG_COOLDOWN_DAYS", "2"))
     )
 
+    # Analyzer: upload your own video and get an AI-generated title/caption/hashtags.
+    analyzer_max_upload_mb: int = field(
+        default_factory=lambda: int(os.getenv("ANALYZER_MAX_UPLOAD_MB", "300"))
+    )
+
     def ensure_dirs(self) -> None:
-        for path in (RAW_DIR, FILTERED_DIR, MEDIA_DIR, REPORTS_DIR, DATA_DIR):
+        for path in (RAW_DIR, FILTERED_DIR, MEDIA_DIR, REPORTS_DIR, DATA_DIR, ANALYZER_UPLOAD_DIR):
             path.mkdir(parents=True, exist_ok=True)
         self.browser_user_data_dir.mkdir(parents=True, exist_ok=True)
         for slot in range(self.engage_profile_slots):

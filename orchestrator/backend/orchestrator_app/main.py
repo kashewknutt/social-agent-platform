@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -261,6 +261,66 @@ async def bot_interaction_execute(bot_id: str, interaction_id: str, request: Req
     except Exception:
         body = {}
     return await _proxy(bot_id, "POST", f"/interactions/{interaction_id}/execute", body)
+
+
+@app.post("/api/bots/{bot_id}/analyzer/upload")
+async def bot_analyzer_upload(
+    bot_id: str,
+    file: UploadFile = File(...),
+    context_note: str | None = Form(default=None),
+) -> Any:
+    content = await file.read()
+    files = {
+        "file": (
+            file.filename or "video.mp4",
+            content,
+            file.content_type or "application/octet-stream",
+        )
+    }
+    data: dict[str, Any] = {}
+    if context_note is not None:
+        data["context_note"] = context_note
+    try:
+        return await registry.proxy_multipart(
+            bot_id, "/analyzer/upload", files=files, data=data, timeout=180.0
+        )
+    except KeyError as exc:
+        raise HTTPException(404, f"Unknown bot {bot_id}") from exc
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(exc.response.status_code, exc.response.text) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"Bot unreachable: {exc}") from exc
+
+
+@app.get("/api/bots/{bot_id}/analyzer")
+async def bot_analyzer_list(
+    bot_id: str,
+    status: str | None = None,
+    posted: bool | None = None,
+    limit: int = Query(100, ge=1, le=1000),
+) -> Any:
+    qs = [f"limit={limit}"]
+    if status:
+        qs.append(f"status={status}")
+    if posted is not None:
+        qs.append(f"posted={str(posted).lower()}")
+    return await _proxy(bot_id, "GET", f"/analyzer?{'&'.join(qs)}")
+
+
+@app.get("/api/bots/{bot_id}/analyzer/{analysis_id}")
+async def bot_analyzer_one(bot_id: str, analysis_id: str) -> Any:
+    return await _proxy(bot_id, "GET", f"/analyzer/{analysis_id}")
+
+
+@app.patch("/api/bots/{bot_id}/analyzer/{analysis_id}")
+async def bot_analyzer_patch(bot_id: str, analysis_id: str, request: Request) -> Any:
+    body = await request.json()
+    return await _proxy(bot_id, "PATCH", f"/analyzer/{analysis_id}", body)
+
+
+@app.delete("/api/bots/{bot_id}/analyzer/{analysis_id}")
+async def bot_analyzer_delete(bot_id: str, analysis_id: str) -> Any:
+    return await _proxy(bot_id, "DELETE", f"/analyzer/{analysis_id}")
 
 
 async def _proxy(bot_id: str, method: str, path: str, body: Any = None) -> Any:

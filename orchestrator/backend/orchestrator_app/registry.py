@@ -175,6 +175,37 @@ class BotRegistry:
             return {"ok": True}
         return response.json()
 
+    async def proxy_multipart(
+        self,
+        bot_id: str,
+        path: str,
+        *,
+        files: dict[str, tuple[str | None, bytes, str | None]],
+        data: dict[str, Any] | None = None,
+        timeout: float = 120.0,
+    ) -> Any:
+        """Proxy a multipart/form-data upload (e.g. video files) to a bot.
+
+        Uses its own short-lived client with a much longer timeout than the
+        shared `self._client`, since large video uploads/analysis can take
+        well beyond the default 8s JSON proxy timeout.
+        """
+        bot = self.get(bot_id)
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(timeout, connect=5.0),
+            trust_env=False,
+        ) as client:
+            response = await client.post(f"{bot.url}{path}", files=files, data=data)
+        if response.status_code >= 400:
+            raise httpx.HTTPStatusError(
+                f"{response.status_code}",
+                request=response.request,
+                response=response,
+            )
+        if response.status_code == 204 or not response.content:
+            return {"ok": True}
+        return response.json()
+
     async def health(self, bot_id: str) -> dict[str, Any]:
         bot = self.get(bot_id)
         try:

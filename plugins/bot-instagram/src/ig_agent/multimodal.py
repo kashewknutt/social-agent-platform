@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -148,3 +149,132 @@ def analyze_from_filtered_file(
     """Load filtered JSON and run multimodal on top posts."""
     data = json.loads(filtered_path.read_text(encoding="utf-8"))
     return analyze_top_posts(data.get("posts", []), settings)
+
+
+def _extract_json_object(text: str) -> dict[str, Any] | None:
+    """Best-effort extraction of a JSON object from model text (handles ```json fences)."""
+    raw = (text or "").strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:\w+)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw).strip()
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        pass
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    if not match:
+        return None
+    try:
+        parsed = json.loads(match.group(0))
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        return None
+
+
+def _analyzer_system_prompt(agency: dict[str, Any], context_note: str | None) -> str:
+    """Prompt for turning the user's own video into a ready-to-post caption.
+
+    This is OUR post going out under the brand's own voice (not a comment or
+    DM on someone else's content), so it borrows the same brand-facts / locale
+    / banned-phrase guardrails used for organic post drafts and comment/DM
+    copy elsewhere in this codebase, to keep tone consistent app-wide.
+    """
+    from ig_agent.propose import (
+        _BANNED_PHRASES_BLOCK,
+        _brand_facts,
+        _locale_voice_block,
+        detect_locale,
+    )
+
+    locale = detect_locale({}, agency)
+    context_block = ""
+    if context_note and context_note.strip():
+        context_block = (
+            f"\nAdditional context from the creator about this video (use it, don't quote "
+            f"it verbatim):\n{context_note.strip()[:500]}\n"
+        )
+    return (
+        "Watch this video and write everything needed to post it to Instagram, in the "
+        "account's own voice — this is OUR content going out, not a comment on someone "
+        "else's post.\n"
+        f"{_locale_voice_block(locale)}\n"
+        f"{_brand_facts(agency)}\n"
+        f"{context_block}\n"
+        "Output STRICT JSON only, no markdown fences, no explanation, in this exact shape:\n"
+        '{"title": "...", "caption": "...", "hashtags": ["...", "..."]}\n\n'
+        "RULES:\n"
+        "1. \"title\" is a short, punchy hook line (under 60 characters) — the kind of line "
+        "that would stop someone mid-scroll. Not a literal video description.\n"
+        "2. \"caption\" is the full Instagram caption: hook in line 1, 3–6 short lines, "
+        "grounded in what actually happens in the video (mention a specific moment, "
+        "number, or detail you saw). Soft brand close is fine but no strategy dump.\n"
+        "3. \"hashtags\" is a list of 8–15 lowercase hashtags (no '#' prefix) relevant to "
+        "the video's actual content — mix specific/niche tags with a couple of broader "
+        "ones. Don't repeat the same generic tags every time.\n"
+        "4. NEVER use any of these phrases or close variants — they read as robotic filler:\n"
+        f"{_BANNED_PHRASES_BLOCK}\n"
+        "5. Do not mention being an AI or reference this prompt."
+    )
+
+
+def analyze_video_for_caption(
+    video_path: Path,
+    *,
+    context_note: str | None = None,
+    agency: dict[str, Any] | None = None,
+    settings: Settings | None = None,
+) -> dict[str, Any]:
+    """Analyze a local video and draft a title/caption/hashtags for posting it.
+
+    Reuses the same Kimi Files API upload flow as `analyze_video` (one call,
+    same model/cleanup), just with a copywriting prompt instead of a plain
+    description prompt, and JSON parsing of the result.
+    """
+    cfg = settings or get_settings()
+    ctx = agency or {}
+    prompt = _analyzer_system_prompt(ctx, context_note)
+
+    client = _get_client(cfg)
+    file_id = upload_video(client, video_path)
+    try:
+        completion = client.chat.completions.create(
+            model=cfg.kimi_synth_model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "video_url", "video_url": {"url": f"ms://{file_id}"}},
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
+        )
+        raw_text = completion.choices[0].message.content or ""
+    finally:
+        try:
+            client.files.delete(file_id)
+        except Exception:
+            pass
+
+    parsed = _extract_json_object(raw_text)
+    if parsed:
+        title = str(parsed.get("title") or "").strip()
+        caption = str(parsed.get("caption") or "").strip()
+        hashtags_raw = parsed.get("hashtags")
+        hashtags = (
+            [str(h).strip().lstrip("#").lower() for h in hashtags_raw if str(h).strip()]
+            if isinstance(hashtags_raw, list)
+            else []
+        )
+    else:
+        # Degrade gracefully: keep the raw text as caption so the user can
+        # still edit/fill title + hashtags by hand instead of a hard failure.
+        title, caption, hashtags = "", raw_text.strip(), []
+
+    return {
+        "title": title,
+        "caption": caption,
+        "hashtags": hashtags,
+        "raw_analysis": raw_text,
+    }

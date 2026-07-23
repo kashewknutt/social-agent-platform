@@ -84,6 +84,9 @@
       .pill.paused { background: #fff4d6; color: var(--warn); }
       .pill.error { background: #ffe6e7; color: var(--danger); }
       .pill.offline, .pill.stopped { background: #f0eef5; color: var(--idle); }
+      .pill.processing, .pill.uploaded { background: var(--accent-light); color: #5a43c9; }
+      .pill.done { background: #d8f6ee; color: var(--ok); }
+      .pill.failed { background: #ffe6e7; color: var(--danger); }
       .controls { display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center; }
       button, .btn {
         border: 1px solid var(--line); background: var(--surface); color: var(--ink);
@@ -288,6 +291,16 @@
       }
       .ingest-modal-actions { display: flex; gap: 0.5rem; margin-top: 0.85rem; justify-content: flex-end; }
       .ingest-modal-actions button { min-width: 7rem; }
+      .analyzer-upload {
+        border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft);
+        padding: 0.85rem 1rem; margin-bottom: 1rem;
+      }
+      .analyzer-list { display: grid; gap: 0.75rem; }
+      .analyzer-item {
+        border: 1px solid var(--line); border-radius: 12px; padding: 0.75rem 0.85rem;
+        background: var(--surface-soft);
+      }
+      .analyzer-item .field { margin-bottom: 0.45rem; }
     </style>
   </head>
   <body>
@@ -321,6 +334,8 @@
         engage: true,
         interactions: [],
         ixDrafts: {},
+        analyzer: { items: [] },
+        analyzerDrafts: {},
         circuit: null,
         scriptedHealth: null,
         live: null,
@@ -400,6 +415,19 @@
           headers: { "Content-Type": "application/json", ...(options.headers || {}) },
           ...options,
         });
+        const text = await res.text();
+        let data = null;
+        try { data = text ? JSON.parse(text) : null; } catch { data = { detail: text }; }
+        if (!res.ok) {
+          const detail = data?.detail ?? text ?? res.statusText;
+          throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+        }
+        return data;
+      }
+
+      async function apiUpload(path, formData) {
+        // No Content-Type header — the browser sets the multipart boundary itself.
+        const res = await fetch(path, { method: "POST", body: formData });
         const text = await res.text();
         let data = null;
         try { data = text ? JSON.parse(text) : null; } catch { data = { detail: text }; }
@@ -523,7 +551,7 @@
         if (!bot) return;
         try {
           const runQs = state.selectedRunId ? `?run_id=${encodeURIComponent(state.selectedRunId)}` : "";
-          const [snap, logData, dir, outputs, ixData, liveData, discData, bootData] = await Promise.all([
+          const [snap, logData, dir, outputs, ixData, liveData, discData, bootData, analyzerData] = await Promise.all([
             api(`/api/bots/${bot.id}`).catch(() => null),
             api(`/api/bots/${bot.id}/logs?tail=150`).catch(() => ({ lines: [] })),
             api(`/api/bots/${bot.id}/direction`).catch(() => null),
@@ -532,6 +560,7 @@
             api(`/api/bots/${bot.id}/live`).catch(() => null),
             api(`/api/bots/${bot.id}/disconnect-log?tail=20`).catch(() => ({ lines: [] })),
             api(`/api/bots/${bot.id}/boot-log?tail=40`).catch(() => ({ lines: [] })),
+            api(`/api/bots/${bot.id}/analyzer?limit=50`).catch(() => ({ items: [] })),
           ]);
           if (snap) state.bots = state.bots.map((b) => (b.id === snap.id ? snap : b));
           state.logs = logData.lines || [];
@@ -553,6 +582,11 @@
           state.live = snap?.status?.live || liveData || outputs?.live || state.live;
           if (outputs?.run?.run_id && !state.selectedRunId) {
             state.selectedRunId = outputs.run.run_id;
+          }
+          state.analyzer = analyzerData || { items: [] };
+          const analyzerIds = new Set((state.analyzer.items || []).map((a) => a.id));
+          for (const id of Object.keys(state.analyzerDrafts)) {
+            if (!analyzerIds.has(id)) delete state.analyzerDrafts[id];
           }
         } catch (e) {
           state.error = e.message;
@@ -760,11 +794,32 @@
         return Boolean(active && app.contains(active) && active.matches && active.matches("textarea[data-draft]"));
       }
 
+      function syncAnalyzerDraftsFromDom() {
+        app.querySelectorAll(".analyzer-item").forEach((el) => {
+          const id = el.dataset.analyzerId;
+          if (!id) return;
+          const fields = ["title", "caption", "hashtags", "posted_username"];
+          const patch = {};
+          let touched = false;
+          for (const field of fields) {
+            const input = el.querySelector(`[data-field="${field}"]`);
+            if (input) {
+              patch[field] = input.value;
+              touched = true;
+            }
+          }
+          if (touched) {
+            state.analyzerDrafts[id] = { ...(state.analyzerDrafts[id] || {}), ...patch };
+          }
+        });
+      }
+
       function syncDraftsFromDom() {
         app.querySelectorAll(".ix-item textarea[data-draft]").forEach((ta) => {
           const id = ta.closest(".ix-item")?.dataset?.ixId;
           if (id) state.ixDrafts[id] = ta.value;
         });
+        syncAnalyzerDraftsFromDom();
         if (isEditingDirection() && state.direction) {
           const form = app.querySelector("#dir-form");
           if (form) {
@@ -901,6 +956,71 @@
             <div class="ix-list">
               ${items.length ? items.map(row).join("") : `<p class="empty">No open interactions. Run research with Engage on, or click Propose.</p>`}
             </div>
+          </div>`;
+      }
+
+      function analyzerDraftFor(item, field) {
+        const d = state.analyzerDrafts[item.id];
+        if (d && Object.prototype.hasOwnProperty.call(d, field)) return d[field];
+        if (field === "hashtags") return (item.hashtags || []).join(", ");
+        if (field === "posted_username") return item.posted_username || "";
+        return item[field] || "";
+      }
+
+      function renderAnalyzer() {
+        const items = state.analyzer?.items || [];
+        const rows = items.length
+          ? items.map((item) => {
+              const status = item.status || "uploaded";
+              const editable = status === "done" || status === "failed";
+              const created = (item.created_at || "").slice(0, 19).replace("T", " ");
+              return `
+                <div class="analyzer-item" data-analyzer-id="${esc(item.id)}">
+                  <div class="ix-top">
+                    <span class="pill ${esc(status)}">${esc(status)}</span>
+                    <strong>${esc(item.original_filename || "video")}</strong>
+                    <span class="empty">${esc(created)}</span>
+                    ${item.posted ? `<span class="badge-kept">posted${item.posted_username ? " · @" + esc(item.posted_username) : ""}</span>` : ""}
+                  </div>
+                  ${status === "failed" ? `<div class="banner error" style="margin:0.4rem 0">${esc(item.error || "Analysis failed")}</div>` : ""}
+                  ${status === "processing" || status === "uploaded" ? `<p class="empty" style="margin:0.4rem 0">Analyzing video with AI… this can take a minute for longer clips.</p>` : ""}
+                  ${item.context_note ? `<div class="catch-meta" style="margin:0.3rem 0">Note: ${esc(item.context_note)}</div>` : ""}
+                  ${editable ? `
+                    <div class="field"><label>Title / hook</label><input data-field="title" value="${esc(analyzerDraftFor(item, "title"))}" /></div>
+                    <div class="field"><label>Caption</label><textarea data-field="caption">${esc(analyzerDraftFor(item, "caption"))}</textarea></div>
+                    <div class="field"><label>Hashtags (comma separated)</label><input data-field="hashtags" value="${esc(analyzerDraftFor(item, "hashtags"))}" /></div>
+                    <div class="field"><label>Posted to username</label><input data-field="posted_username" value="${esc(analyzerDraftFor(item, "posted_username"))}" placeholder="e.g. valnee.software" /></div>
+                    <div class="controls" style="margin-top:0.3rem">
+                      <label style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.82rem;color:var(--muted)">
+                        <input type="checkbox" data-field="posted-checkbox" ${item.posted ? "checked" : ""} /> Posted
+                      </label>
+                      <button type="button" data-analyzer="save">Save</button>
+                      <button type="button" data-analyzer="copy">Copy caption + tags</button>
+                      <button type="button" class="danger" data-analyzer="delete">Delete</button>
+                    </div>` : `
+                    <div class="controls" style="margin-top:0.3rem">
+                      <button type="button" class="danger" data-analyzer="delete">Delete</button>
+                    </div>`}
+                </div>`;
+            }).join("")
+          : `<p class="empty">No videos analyzed yet — upload one below to get an AI title, caption, and hashtags.</p>`;
+
+        return `
+          <div class="outputs" style="margin-top:1rem">
+            <div class="outputs-head">
+              <div>
+                <h4>Analyzer</h4>
+                <div class="outputs-meta">Upload a video you're about to post — get an AI hook, caption, and hashtags in your brand voice.</div>
+              </div>
+            </div>
+            <div class="analyzer-upload">
+              <div class="field"><label>Video file</label><input type="file" id="analyzer-file" accept="video/*" /></div>
+              <div class="field"><label>Context note (optional)</label><textarea id="analyzer-note" placeholder="Anything the AI should know — e.g. this is a client testimonial, keep it short, etc."></textarea></div>
+              <div class="controls">
+                <button type="button" class="primary ${state.busy === "analyzer-upload" ? "busy" : ""}" data-analyzer="upload" ${state.busy ? "disabled" : ""}>Analyze video</button>
+              </div>
+            </div>
+            <div class="analyzer-list">${rows}</div>
           </div>`;
       }
 
@@ -1054,6 +1174,7 @@
         setHtml(document.getElementById("outputs-mount"), bot?.id === "instagram" ? renderOutputs() : "");
         syncDraftsFromDom();
         setHtml(document.getElementById("ix-mount"), bot?.id === "instagram" ? renderInteractions() : "");
+        setHtml(document.getElementById("analyzer-mount"), bot?.id === "instagram" ? renderAnalyzer() : "");
         bindSoft();
 
         const panel = app.querySelector(".panel");
@@ -1197,6 +1318,7 @@
             <div id="catch-mount">${bot.id === "instagram" ? renderCaught() : ""}</div>
             <div id="outputs-mount">${bot.id === "instagram" ? renderOutputs() : ""}</div>
             <div id="ix-mount">${bot.id === "instagram" ? renderInteractions() : ""}</div>
+            <div id="analyzer-mount">${bot.id === "instagram" ? renderAnalyzer() : ""}</div>
           </section>`;
 
         app.innerHTML = `
@@ -1268,6 +1390,102 @@
         });
       }
 
+      function bindAnalyzer() {
+        app.querySelectorAll(".analyzer-item").forEach((el) => {
+          const id = el.dataset.analyzerId;
+          if (!id) return;
+          el.querySelectorAll("[data-field]").forEach((input) => {
+            if (input.dataset.field === "posted-checkbox") return;
+            input.oninput = () => {
+              state.analyzerDrafts[id] = { ...(state.analyzerDrafts[id] || {}), [input.dataset.field]: input.value };
+            };
+          });
+          const saveBtn = el.querySelector('[data-analyzer="save"]');
+          if (saveBtn) {
+            saveBtn.onclick = () => {
+              const bot = selected();
+              if (!bot) return;
+              const title = el.querySelector('[data-field="title"]')?.value ?? "";
+              const caption = el.querySelector('[data-field="caption"]')?.value ?? "";
+              const hashtagsRaw = el.querySelector('[data-field="hashtags"]')?.value ?? "";
+              const postedUsername = el.querySelector('[data-field="posted_username"]')?.value ?? "";
+              const posted = Boolean(el.querySelector('[data-field="posted-checkbox"]')?.checked);
+              const hashtags = hashtagsRaw.split(",").map((s) => s.trim().replace(/^#/, "")).filter(Boolean);
+              return act("analyzer-save", async () => {
+                await api(`/api/bots/${bot.id}/analyzer/${id}`, {
+                  method: "PATCH",
+                  body: JSON.stringify({
+                    title,
+                    caption,
+                    hashtags,
+                    posted,
+                    posted_username: postedUsername || null,
+                  }),
+                });
+                delete state.analyzerDrafts[id];
+                return { message: "Saved." };
+              });
+            };
+          }
+          const copyBtn = el.querySelector('[data-analyzer="copy"]');
+          if (copyBtn) {
+            copyBtn.onclick = () => {
+              const caption = el.querySelector('[data-field="caption"]')?.value ?? "";
+              const hashtagsRaw = el.querySelector('[data-field="hashtags"]')?.value ?? "";
+              const tags = hashtagsRaw.split(",").map((s) => s.trim().replace(/^#/, "")).filter(Boolean).map((t) => `#${t}`).join(" ");
+              const text = tags ? `${caption}\n\n${tags}` : caption;
+              const mark = () => {
+                copyBtn.textContent = "Copied";
+                copyBtn.classList.add("copied");
+                setTimeout(() => { copyBtn.textContent = "Copy caption + tags"; copyBtn.classList.remove("copied"); }, 1400);
+              };
+              if (navigator.clipboard?.writeText) {
+                navigator.clipboard.writeText(text).then(mark).catch(() => {
+                  state.error = "Clipboard blocked — select the text manually.";
+                  render();
+                });
+              }
+            };
+          }
+          const deleteBtn = el.querySelector('[data-analyzer="delete"]');
+          if (deleteBtn) {
+            deleteBtn.onclick = () => {
+              const bot = selected();
+              if (!bot) return;
+              if (!window.confirm("Delete this analysis and its uploaded video?")) return;
+              return act("analyzer-delete", async () => {
+                await api(`/api/bots/${bot.id}/analyzer/${id}`, { method: "DELETE" });
+                delete state.analyzerDrafts[id];
+                return { message: "Deleted." };
+              });
+            };
+          }
+        });
+
+        const uploadBtn = app.querySelector('[data-analyzer="upload"]');
+        if (uploadBtn) {
+          uploadBtn.onclick = () => {
+            const bot = selected();
+            if (!bot) return;
+            const fileInput = document.getElementById("analyzer-file");
+            const noteInput = document.getElementById("analyzer-note");
+            const file = fileInput?.files?.[0];
+            if (!file) {
+              state.error = "Choose a video file first.";
+              render();
+              return;
+            }
+            const fd = new FormData();
+            fd.append("file", file);
+            if (noteInput?.value) fd.append("context_note", noteInput.value);
+            return act("analyzer-upload", async () => {
+              await apiUpload(`/api/bots/${bot.id}/analyzer/upload`, fd);
+              return { message: "Video uploaded — analyzing in background…" };
+            });
+          };
+        }
+      }
+
       function bindSoft() {
         // Re-bind only regions that patchLiveOnly may have replaced
         app.querySelectorAll("[data-tab]").forEach((btn) => {
@@ -1286,6 +1504,7 @@
           };
         }
         bindInteractions();
+        bindAnalyzer();
       }
 
       function bind() {
@@ -1385,6 +1604,10 @@
         if (userIsBusy()) return 5000;
         const st = botState(selected());
         if (state.busy || st === "running" || st === "paused") return 1500;
+        const analyzerBusy = (state.analyzer?.items || []).some(
+          (a) => a.status === "processing" || a.status === "uploaded"
+        );
+        if (analyzerBusy) return 2000;
         return 4000;
       }
 
