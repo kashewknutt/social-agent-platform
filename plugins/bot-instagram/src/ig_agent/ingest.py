@@ -325,6 +325,7 @@ async def capture_trends(
     engage_live: bool = True,
     run_id: str | None = None,
     controller: Any | None = None,
+    content_mode: str = "reels",
 ) -> Path:
     """Run ingestion — scripted scraper first, LLM agent as fallback."""
     cfg = settings or get_settings()
@@ -339,6 +340,7 @@ async def capture_trends(
                 engage_live=engage_live,
                 run_id=run_id,
                 controller=controller,
+                content_mode=content_mode,
             )
         except Exception as exc:
             msg = f"Scripted scrape failed ({exc}) — falling back to LLM ingest"
@@ -368,6 +370,7 @@ async def _capture_trends_scripted(
     engage_live: bool = True,
     run_id: str | None = None,
     controller: Any | None = None,
+    content_mode: str = "reels",
 ) -> Path:
     from ig_agent.browser_factory import make_browser_session, safe_kill
     from ig_agent.scraper import ScrapeError, scrape_research_batch
@@ -383,7 +386,10 @@ async def _capture_trends_scripted(
         logger.info(msg)
 
     limit = max(1, cfg.max_posts_per_session)
-    progress(f"Scripted scrape (target {limit} posts, engage={'ON' if engage_live else 'OFF'})…")
+    mode = (content_mode or "reels").strip().lower()
+    progress(
+        f"Scripted scrape (target {limit} {mode}, engage={'ON' if engage_live else 'OFF'})…"
+    )
 
     browser = make_browser_session(cfg, headless=False)
     posts: list[dict[str, Any]] = []
@@ -398,6 +404,7 @@ async def _capture_trends_scripted(
             on_progress=progress,
             controller=controller,
             run_id=run_id,
+            content_mode=mode,
             should_stop=should_stop,
         )
         if on_posts:
@@ -743,6 +750,7 @@ async def capture_trends_with_delays(
     engage_live: bool = True,
     run_id: str | None = None,
     controller: Any | None = None,
+    content_mode: str = "reels",
 ) -> Path:
     """Ingest with a short warm-up before browser launch."""
     if on_progress:
@@ -757,6 +765,7 @@ async def capture_trends_with_delays(
         engage_live=engage_live,
         run_id=run_id,
         controller=controller,
+        content_mode=content_mode,
     )
     await asyncio.sleep(min(scroll_delay(), 2.5))
     return path

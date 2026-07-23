@@ -28,6 +28,10 @@ class RunRequest(BaseModel):
     multimodal: bool = False
     offline: bool = False
     engage: bool = True
+    # Ingest source for this run. Bot-specific meaning; Instagram uses
+    # "reels" (scroll IG's algorithmic Reels feed, default) vs "posts"
+    # (search the bot's configured hashtags for real posts/reels mixed).
+    content_mode: str = "reels"
 
 
 class Direction(BaseModel):

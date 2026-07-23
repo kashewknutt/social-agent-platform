@@ -453,74 +453,126 @@ async def scrape_research_batch(
     controller: Any | None = None,
     run_id: str | None = None,
     should_stop: Any | None = None,
+    content_mode: str = "reels",
 ) -> list[dict[str, Any]]:
-    """Scrape candidates + enrich detail; optionally like/follow via scripted actions."""
+    """Scrape candidates + enrich detail; optionally like/follow via scripted actions.
+
+    content_mode="reels" (default): scroll Instagram's own algorithmic Reels
+    feed first — fastest path for live like/follow, hashtags only as fallback.
+    content_mode="posts": search the configured hashtag(s) first so real
+    posts (images + reels) from YOUR niche are used, not the generic Reels
+    feed; the Reels feed is only used as a last-resort fallback.
+    """
     cfg = settings or get_settings()
     tags = hashtags or []
+    mode = (content_mode or "reels").strip().lower()
     candidates: list[dict[str, Any]] = []
     errors: list[str] = []
 
-    # Reels scroll ingest is best for live like/follow — avoids opening post pages with comment threads.
-    if engage_live:
-        try:
-            return await scripted_reels_ingest(
-                browser,
-                limit=limit,
-                engage_live=True,
-                settings=cfg,
-                on_progress=on_progress,
-                controller=controller,
-                run_id=run_id,
-                should_stop=should_stop,
-            )
-        except ScrapeError as exc:
-            logger.warning("Reels ingest failed, trying hashtag/grid: %s", exc)
-            errors.append(f"reels: {exc.detail}")
-
-    # Fresh hashtag first (rotated in runtime) — avoid repeating recent tags.
-    if tags:
-        tag = tags[0]
-        try:
-            if on_progress:
-                from ig_agent.hashtag_rotation import normalize_hashtag
-
-                on_progress(f"Hashtag search #{normalize_hashtag(tag)}…")
-            batch = await scrape_hashtag_candidates(browser, tag, limit, settings=cfg)
-            candidates.extend(batch)
-            if on_progress and batch:
-                on_progress(f"Hashtag #{tag.lstrip('#')} → {len(batch)} post URL(s)")
-        except ScrapeError as exc:
-            msg = f"#{tag.lstrip('#')}: {exc.detail}"
-            errors.append(msg)
-            logger.warning("Hashtag scrape failed for %s: %s", tag, exc)
-
-    if not candidates and engage_live:
-        try:
-            return await scripted_reels_ingest(
-                browser,
-                limit=limit,
-                engage_live=True,
-                settings=cfg,
-                on_progress=on_progress,
-                controller=controller,
-                run_id=run_id,
-                should_stop=should_stop,
-            )
-        except ScrapeError as exc:
-            logger.warning("Reels ingest retry failed, trying explore grid: %s", exc)
-
-    if not candidates:
-        for source, fn in (
-            ("explore", scrape_explore_candidates),
-            ("reels", scrape_reels_candidates),
-        ):
+    if mode == "posts":
+        # Hashtag-first: real posts from the configured niche tags, not
+        # Instagram's generic algorithmic Reels feed.
+        if tags:
+            tag = tags[0]
             try:
-                candidates = await fn(browser, limit, settings=cfg)
-                if candidates:
-                    break
+                if on_progress:
+                    from ig_agent.hashtag_rotation import normalize_hashtag
+
+                    on_progress(f"Post mode: hashtag search #{normalize_hashtag(tag)}…")
+                batch = await scrape_hashtag_candidates(browser, tag, limit, settings=cfg)
+                candidates.extend(batch)
+                if on_progress and batch:
+                    on_progress(f"Hashtag #{tag.lstrip('#')} → {len(batch)} post URL(s)")
             except ScrapeError as exc:
-                errors.append(f"{source}: {exc.detail}")
-                logger.warning("%s scrape failed: %s", source, exc)
+                msg = f"#{tag.lstrip('#')}: {exc.detail}"
+                errors.append(msg)
+                logger.warning("Hashtag scrape failed for %s: %s", tag, exc)
+
+        if not candidates:
+            try:
+                candidates = await scrape_explore_candidates(browser, limit, settings=cfg)
+            except ScrapeError as exc:
+                errors.append(f"explore: {exc.detail}")
+                logger.warning("Explore scrape failed in post mode: %s", exc)
+
+        if not candidates and engage_live:
+            # Last resort so a post-mode run doesn't just fail outright.
+            try:
+                return await scripted_reels_ingest(
+                    browser,
+                    limit=limit,
+                    engage_live=True,
+                    settings=cfg,
+                    on_progress=on_progress,
+                    controller=controller,
+                    run_id=run_id,
+                    should_stop=should_stop,
+                )
+            except ScrapeError as exc:
+                errors.append(f"reels: {exc.detail}")
+                logger.warning("Reels fallback also failed in post mode: %s", exc)
+    else:
+        # Reels scroll ingest is best for live like/follow — avoids opening post pages with comment threads.
+        if engage_live:
+            try:
+                return await scripted_reels_ingest(
+                    browser,
+                    limit=limit,
+                    engage_live=True,
+                    settings=cfg,
+                    on_progress=on_progress,
+                    controller=controller,
+                    run_id=run_id,
+                    should_stop=should_stop,
+                )
+            except ScrapeError as exc:
+                logger.warning("Reels ingest failed, trying hashtag/grid: %s", exc)
+                errors.append(f"reels: {exc.detail}")
+
+        # Fresh hashtag first (rotated in runtime) — avoid repeating recent tags.
+        if tags:
+            tag = tags[0]
+            try:
+                if on_progress:
+                    from ig_agent.hashtag_rotation import normalize_hashtag
+
+                    on_progress(f"Hashtag search #{normalize_hashtag(tag)}…")
+                batch = await scrape_hashtag_candidates(browser, tag, limit, settings=cfg)
+                candidates.extend(batch)
+                if on_progress and batch:
+                    on_progress(f"Hashtag #{tag.lstrip('#')} → {len(batch)} post URL(s)")
+            except ScrapeError as exc:
+                msg = f"#{tag.lstrip('#')}: {exc.detail}"
+                errors.append(msg)
+                logger.warning("Hashtag scrape failed for %s: %s", tag, exc)
+
+        if not candidates and engage_live:
+            try:
+                return await scripted_reels_ingest(
+                    browser,
+                    limit=limit,
+                    engage_live=True,
+                    settings=cfg,
+                    on_progress=on_progress,
+                    controller=controller,
+                    run_id=run_id,
+                    should_stop=should_stop,
+                )
+            except ScrapeError as exc:
+                logger.warning("Reels ingest retry failed, trying explore grid: %s", exc)
+
+        if not candidates:
+            for source, fn in (
+                ("explore", scrape_explore_candidates),
+                ("reels", scrape_reels_candidates),
+            ):
+                try:
+                    candidates = await fn(browser, limit, settings=cfg)
+                    if candidates:
+                        break
+                except ScrapeError as exc:
+                    errors.append(f"{source}: {exc.detail}")
+                    logger.warning("%s scrape failed: %s", source, exc)
 
     # Dedupe and cap
     seen: set[str] = set()

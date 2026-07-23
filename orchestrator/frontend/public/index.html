@@ -114,6 +114,10 @@
       }
       .options label { display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer; }
       .options input { accent-color: var(--accent); }
+      .options select {
+        background: var(--surface); color: var(--ink); border: 1px solid var(--line);
+        border-radius: 8px; padding: 0.2rem 0.4rem; font-size: 0.82rem;
+      }
 
       .steps {
         display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.45rem; margin-bottom: 1rem;
@@ -332,6 +336,7 @@
         offline: false,
         multimodal: true,
         engage: true,
+        contentMode: "reels",
         interactions: [],
         ixDrafts: {},
         analyzer: { items: [] },
@@ -781,6 +786,7 @@
           offline: Boolean(state.offline),
           multimodal: Boolean(state.multimodal),
           engage: Boolean(state.engage),
+          content_mode: state.contentMode === "posts" ? "posts" : "reels",
         };
       }
 
@@ -1279,8 +1285,15 @@
               <label><input type="checkbox" id="opt-offline" ${state.offline ? "checked" : ""} /> Offline heuristics</label>
               <label><input type="checkbox" id="opt-multimodal" ${state.multimodal ? "checked" : ""} /> Analyze shortlisted media</label>
               <label><input type="checkbox" id="opt-engage" ${state.engage ? "checked" : ""} /> Engage after research</label>
+              ${bot.id === "instagram" ? `
+              <label class="content-mode-label">Source for this run:
+                <select id="opt-content-mode">
+                  <option value="reels" ${state.contentMode !== "posts" ? "selected" : ""}>Reels (scroll IG's Reels feed)</option>
+                  <option value="posts" ${state.contentMode === "posts" ? "selected" : ""}>Posts (search my hashtags)</option>
+                </select>
+              </label>` : ""}
             </div>
-            <div class="banner info">Live research opens Chromium. Log into Instagram if asked — session is saved. Media analysis runs only on filtered top posts.</div>
+            <div class="banner info">Live research opens Chromium. Log into Instagram if asked — session is saved. Media analysis runs only on filtered top posts.${bot.id === "instagram" ? " \"Posts\" mode searches your configured hashtags for real posts/reels from your niche instead of IG's generic Reels feed." : ""}</div>
 
             <div id="progress-mount"></div>
             <div id="steps-mount"></div>
@@ -1521,9 +1534,11 @@
         const offline = app.querySelector("#opt-offline");
         const multimodal = app.querySelector("#opt-multimodal");
         const engage = app.querySelector("#opt-engage");
+        const contentMode = app.querySelector("#opt-content-mode");
         if (offline) offline.onchange = () => { state.offline = offline.checked; };
         if (multimodal) multimodal.onchange = () => { state.multimodal = multimodal.checked; };
         if (engage) engage.onchange = () => { state.engage = engage.checked; };
+        if (contentMode) contentMode.onchange = () => { state.contentMode = contentMode.value; };
 
         app.querySelectorAll("[data-act]").forEach((btn) => {
           btn.onclick = () => {

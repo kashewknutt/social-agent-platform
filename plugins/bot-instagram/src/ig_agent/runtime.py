@@ -251,6 +251,7 @@ async def run_pipeline(controller: BotController, request: RunRequest) -> None:
                 engage_live=engage_live,
                 run_id=controller.run_id,
                 controller=controller,
+                content_mode=getattr(request, "content_mode", "reels"),
             )
             controller.set_step("ingest", f"Ingested → {raw_path.name}")
 
