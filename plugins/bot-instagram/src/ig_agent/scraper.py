@@ -376,7 +376,7 @@ async def scripted_reels_ingest(
     run_id: str | None = None,
     should_stop: Any | None = None,
 ) -> list[dict[str, Any]]:
-    """Scroll the Reels feed, capture each reel, like + follow + optional live comment."""
+    """Scroll the Reels feed, capture each reel, like (+ optional follow) + optional live comment."""
     from ig_agent.ingest_comment_gate import prompt_and_post_ingest_comment
 
     cfg = settings or get_settings()

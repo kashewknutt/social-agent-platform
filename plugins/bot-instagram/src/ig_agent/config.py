@@ -114,7 +114,7 @@ class Settings:
         default_factory=lambda: int(os.getenv("MAX_LIKES_PER_DAY", "80"))
     )
     max_follows_per_day: int = field(
-        default_factory=lambda: int(os.getenv("MAX_FOLLOWS_PER_DAY", "40"))
+        default_factory=lambda: int(os.getenv("MAX_FOLLOWS_PER_DAY", "0"))
     )
     max_comments_per_day: int = field(
         default_factory=lambda: int(os.getenv("MAX_COMMENTS_PER_DAY", "12"))

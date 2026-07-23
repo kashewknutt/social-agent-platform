@@ -54,13 +54,16 @@ def _build_ingest_task(
     follows_left = remaining_cap("follow", settings)
 
     if engage_live:
+        caps_line = f"   - Soft room left: likes≈{likes_left}."
+        if follows_left > 0:
+            caps_line += f" follows≈{follows_left}."
         engage_block = (
             "4) On EACH reel/post you open (fast):\n"
-            "   - Do NOT click Like or Follow yourself — scripted automation handles post likes "
-            "and follows on the current screen.\n"
-            "   - Scroll to the next reel/post quickly. Never sit on one post.\n"
-            f"   - Soft room left: likes≈{likes_left}, follows≈{follows_left}.\n"
-            "   - No comments, DMs, saves, or new posts.\n"
+            "   - Do NOT click Like or Follow yourself — scripted automation handles post likes"
+            + (" and follows on the current screen.\n" if follows_left > 0 else " on the current screen.\n")
+            + "   - Scroll to the next reel/post quickly. Never sit on one post.\n"
+            + caps_line + "\n"
+            + "   - No comments, DMs, saves, or new posts.\n"
         )
     else:
         engage_block = "4) Observation only — do not like/follow/comment/DM.\n"

@@ -658,40 +658,41 @@ def propose_interactions(
             )
         )
 
-    # Follows (auto) — every potential username
-    for post in ranked_all:
-        if len([c for c in created if c["kind"] == "follow"]) >= follow_budget:
-            break
-        identity = extract_post_identity(post)
-        username = _username_from_post(post) or identity.get("username")
-        if not username or username in followed_usernames:
-            continue
-        if _already_proposed(
-            run_id=run_id, kind="follow", post_url=identity.get("post_url"), username=username, db_path=db_path
-        ):
-            continue
-        if any(
-            r.get("kind") == "follow"
-            and (r.get("username") or "").lower() == username.lower()
-            and r.get("status") == "done"
-            for r in list_interactions(kind="follow", limit=500, db_path=db_path)
-        ):
-            continue
-        followed_usernames.add(username)
-        profile_url = identity.get("profile_url") or f"https://www.instagram.com/{username}/"
-        created.append(
-            create_interaction(
-                kind="follow",
-                status="proposed",
-                run_id=run_id,
-                post_url=identity.get("post_url"),
-                profile_url=profile_url,
-                username=username,
-                auto=True,
-                payload={"source": "propose", "relevance_score": post.get("relevance_score")},
-                db_path=db_path,
+    # Follows (auto) — only when daily follow cap > 0
+    if follow_budget > 0:
+        for post in ranked_all:
+            if len([c for c in created if c["kind"] == "follow"]) >= follow_budget:
+                break
+            identity = extract_post_identity(post)
+            username = _username_from_post(post) or identity.get("username")
+            if not username or username in followed_usernames:
+                continue
+            if _already_proposed(
+                run_id=run_id, kind="follow", post_url=identity.get("post_url"), username=username, db_path=db_path
+            ):
+                continue
+            if any(
+                r.get("kind") == "follow"
+                and (r.get("username") or "").lower() == username.lower()
+                and r.get("status") == "done"
+                for r in list_interactions(kind="follow", limit=500, db_path=db_path)
+            ):
+                continue
+            followed_usernames.add(username)
+            profile_url = identity.get("profile_url") or f"https://www.instagram.com/{username}/"
+            created.append(
+                create_interaction(
+                    kind="follow",
+                    status="proposed",
+                    run_id=run_id,
+                    post_url=identity.get("post_url"),
+                    profile_url=profile_url,
+                    username=username,
+                    auto=True,
+                    payload={"source": "propose", "relevance_score": post.get("relevance_score")},
+                    db_path=db_path,
+                )
             )
-        )
 
     # Comments (HITL) — kept shortlist
     for post in ranked_kept:
