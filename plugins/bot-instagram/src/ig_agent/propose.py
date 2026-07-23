@@ -124,21 +124,60 @@ _BANNED_PHRASES = (
 )
 _BANNED_PHRASES_BLOCK = "\n".join(f"- \"{p}\"" for p in _BANNED_PHRASES)
 
+# The single biggest "this was written by AI" tell across every generated
+# surface (comments, DMs, posts, video captions, hashtags). Applied
+# everywhere, not just here, so keep this text itself free of the symbol.
+_BANNED_SYMBOLS_RULE = (
+    "Never use an em dash or en dash, anywhere, for any reason. If you want to "
+    "connect two ideas, use a period, a comma, or just the word 'and' or 'but' "
+    "instead. Also skip semicolons and rhetorical 'not just X, it's Y' framing. "
+    "Real people texting don't use these, and they are the number one giveaway "
+    "that a caption was AI generated."
+)
+
+
+def _voice_guardrails_block() -> str:
+    """Banned phrases + banned punctuation. Shared by every generated surface
+    (comment, DM, post, video caption) so the "sounds like AI" fixes only
+    need to happen in one place.
+    """
+    return (
+        f"{_BANNED_SYMBOLS_RULE}\n"
+        "Also never use any of these phrases or close variants of them, they "
+        "read as robotic filler:\n"
+        f"{_BANNED_PHRASES_BLOCK}"
+    )
+
 
 def _locale_voice_block(locale: Locale) -> str:
     if locale == "india":
         return (
-            "LOCALE: India (Indian English), but casual — like texting a friend, not "
+            "LOCALE: India (Indian English), but casual, like texting a friend, not "
             "writing a LinkedIn post.\n"
             "Skip stiff corporate phrases entirely (never: 'do the needful', "
             "'respected sir', 'kindly revert', 'as per').\n"
-            "Contractions are fine. Lowercase-first is fine — capitalize only for emphasis."
+            "Contractions are fine. Lowercase-first is fine, capitalize only for emphasis."
         )
     return (
         "LOCALE: United States (American English), casual and direct.\n"
         "Short sentences. No fluff openings ('Hope this finds you well', "
         "'Just circling back').\n"
-        "Contractions are fine. Lowercase-first is fine — capitalize only for emphasis."
+        "Contractions are fine. Lowercase-first is fine, capitalize only for emphasis."
+    )
+
+
+def _trending_hashtag_pool(agency: dict[str, Any]) -> str:
+    """A few of the creator's own saved niche hashtags, offered as inspiration
+    for "currently active in this niche" tags, not a required list.
+    """
+    tags = [str(t).strip().lstrip("#") for t in (agency.get("competitor_hashtags") or []) if str(t).strip()]
+    if not tags:
+        return ""
+    sample = ", ".join(f"#{t}" for t in tags[:10])
+    return (
+        f"\nHashtags this account has already identified as relevant to its niche "
+        f"(use as inspiration for what's currently active, don't just paste all of "
+        f"these every time): {sample}\n"
     )
 
 
@@ -147,7 +186,7 @@ def _brand_facts(agency: dict[str, Any]) -> str:
     site = agency.get("website") or "https://valnee.com"
     voice = agency.get("brand_voice") or "direct, founder-friendly"
     return (
-        f"Brand (background only — never paste these bullets into the message):\n"
+        f"Brand (background only, never paste these bullets into the message):\n"
         f"- Name: {brand}\n"
         f"- Site: {site}\n"
         f"- Voice: {voice}\n"
@@ -158,23 +197,21 @@ def _brand_facts(agency: dict[str, Any]) -> str:
 
 def _system_prompt_comment(locale: Locale, agency: dict[str, Any]) -> str:
     return (
-        "You are a real person scrolling Instagram, leaving a quick comment — not an AI, "
+        "You are a real person scrolling Instagram, leaving a quick comment. Not an AI, "
         "not a brand account, not a marketer. You comment the way you'd actually text a "
         "friend: a little casual, a little imperfect, always specific.\n"
         f"{_locale_voice_block(locale)}\n\n"
-        "HOW TO WRITE — read the caption below FIRST, then react to it:\n"
+        "HOW TO WRITE (read the caption below FIRST, then react to it):\n"
         "1. Output ONLY the comment text. No quotes, no labels, no explanation.\n"
-        "2. 1–2 short sentences, under 180 characters.\n"
-        "3. Pull ONE concrete detail from their actual caption — a number, a tool, a "
-        "decision, a specific line — and react to THAT in your own words. Do not "
+        "2. 1-2 short sentences, under 180 characters.\n"
+        "3. Pull ONE concrete detail from their actual caption (a number, a tool, a "
+        "decision, a specific line) and react to THAT in your own words. Do not "
         "generalize it into a life lesson or motivational one-liner.\n"
-        "4. End with a genuine, specific observation or a short, low-stakes question — "
-        "never a call-to-action, never a sales pitch.\n"
-        "5. At most ONE emoji, only if it truly fits — most comments should use zero.\n"
+        "4. End with a genuine, specific observation or a short, low-stakes question. "
+        "Never a call-to-action, never a sales pitch.\n"
+        "5. At most ONE emoji, only if it truly fits. Most comments should use zero.\n"
         "6. Do NOT mention Valnee, pitch anything, or reference being an assistant/bot/AI.\n"
-        "7. NEVER use any of these phrases or close variants of them — they read as "
-        "robotic filler:\n"
-        f"{_BANNED_PHRASES_BLOCK}\n"
+        "7. " + _voice_guardrails_block() + "\n"
         "If you catch yourself about to write one of those, stop and say something more "
         "specific about THIS caption instead."
     )
@@ -182,38 +219,54 @@ def _system_prompt_comment(locale: Locale, agency: dict[str, Any]) -> str:
 
 def _system_prompt_dm(locale: Locale, agency: dict[str, Any]) -> str:
     return (
-        "You are a real founder sliding into someone's DMs after seeing their post — "
-        "curious and specific, not running a sales script.\n"
+        "You are a real founder sliding into someone's DMs after seeing their post. "
+        "Curious and specific, not running a sales script.\n"
         f"{_locale_voice_block(locale)}\n"
         f"{_brand_facts(agency)}\n\n"
         "HOW TO WRITE:\n"
         "1. Output ONLY the DM text. No quotes, no labels, no explanation.\n"
-        "2. 2–4 short sentences, under 320 characters, mobile-readable.\n"
-        "3. Open by reacting to ONE concrete, specific detail from their post — quote or "
+        "2. 2-4 short sentences, under 320 characters, mobile-readable.\n"
+        "3. Open by reacting to ONE concrete, specific detail from their post. Quote or "
         "reference it directly. Do not open with a generic compliment.\n"
         "4. Weave in who you are in ONE short clause, naturally (e.g. 'I build MVPs for "
-        "founders over at valnee.com') — never paste goals, pillars, or a value-prop list.\n"
-        "5. End with exactly ONE easy question tied to what THEY posted — not a generic "
+        "founders over at valnee.com'). Never paste goals, pillars, or a value-prop list.\n"
+        "5. End with exactly ONE easy question tied to what THEY posted. Not a generic "
         "'what are you building?' unless nothing more specific fits.\n"
         "6. No hard pitch, no 'book a call', no link-dumping, no stacked asks.\n"
-        "7. NEVER use any of these phrases or close variants of them — they read as "
-        "robotic filler:\n"
-        f"{_BANNED_PHRASES_BLOCK}"
+        "7. " + _voice_guardrails_block()
     )
 
 
 def _system_prompt_post(locale: Locale, agency: dict[str, Any]) -> str:
     return (
-        "You write an original Instagram caption inspired by research themes — "
-        "not a copy of someone else's post.\n"
+        "You write an original Instagram caption inspired by research themes. "
+        "Not a copy of someone else's post.\n"
         f"{_locale_voice_block(locale)}\n"
-        f"{_brand_facts(agency)}\n\n"
+        f"{_brand_facts(agency)}\n"
+        f"{_trending_hashtag_pool(agency)}\n"
         "RULES:\n"
         "1. Output ONLY the caption. No labels or explanation.\n"
-        "2. Hook in line 1. 3–6 short lines. Founder-friendly.\n"
-        "3. Soft brand close on last line (Valnee / valnee.com) — no strategy dump.\n"
-        "4. End with 3–5 relevant hashtags on the final line."
+        "2. Hook in line 1. 3-6 short lines. Founder-friendly.\n"
+        "3. Soft brand close on last line (Valnee / valnee.com). No strategy dump.\n"
+        "4. End with exactly 4-5 hashtags on the final line. Pick ones that are "
+        "currently active/trending for this niche on Instagram right now, not "
+        "generic filler (#love, #instagood, #motivation) and not obscure tags "
+        "nobody actually searches.\n"
+        "5. " + _voice_guardrails_block()
     )
+
+
+def strip_ai_tell_symbols(text: str) -> str:
+    """Defensive net for the em/en dash ban: even with the prompt guardrail,
+    models occasionally slip one back in. Swap it for what a real person
+    would actually type instead of just deleting it.
+    """
+    out = text or ""
+    out = re.sub(r"\s*[\u2014\u2013]\s*", ", ", out)  # em dash / en dash -> comma
+    out = re.sub(r",\s*,", ",", out)  # collapse doubled commas from the swap
+    out = re.sub(r",\s*\.", ".", out)  # ", ." -> "."
+    out = re.sub(r"[ \t]+\n", "\n", out)  # trailing spaces left behind on a line
+    return out
 
 
 def _clean_model_text(text: str) -> str:
@@ -227,6 +280,7 @@ def _clean_model_text(text: str) -> str:
     for prefix in ("Comment:", "DM:", "Caption:", "Message:", "Output:"):
         if out.lower().startswith(prefix.lower()):
             out = out[len(prefix) :].strip()
+    out = strip_ai_tell_symbols(out)
     return out.strip()
 
 
@@ -234,14 +288,14 @@ def _clean_model_text(text: str) -> str:
 # short and rotated (not always the same construction) so an offline
 # fallback doesn't reintroduce the same robotic phrase every time.
 _FALLBACK_COMMENT_WITH_BIT = (
-    "wait, \"{bit}\" — okay yeah, makes sense.",
+    "wait, \"{bit}\", okay yeah, makes sense.",
     "\"{bit}\" is the part that got me. how'd that actually play out?",
     "ok \"{bit}\" is a good line ngl.",
-    "the \"{bit}\" bit — curious what happened right after that.",
+    "the \"{bit}\" bit, curious what happened right after that.",
 )
 _FALLBACK_COMMENT_NO_BIT = (
     "okay this is a solid one, saving it.",
-    "good one — screenshotting this.",
+    "good one, screenshotting this.",
     "this is a nice, quiet kind of good.",
 )
 
@@ -260,11 +314,11 @@ def _fallback_comment(post: dict[str, Any], locale: Locale) -> str:
 
 
 _FALLBACK_DM_WITH_BIT = (
-    "hey — \"{bit}\" caught my eye. i build MVPs for founders at {brand}. what's the story behind that?",
-    "hey, saw your post — \"{bit}\" is a good detail. i help founders ship MVPs at {brand}. how far along is this?",
+    "hey, \"{bit}\" caught my eye. i build MVPs for founders at {brand}. what's the story behind that?",
+    "hey, saw your post, \"{bit}\" is a good detail. i help founders ship MVPs at {brand}. how far along is this?",
 )
 _FALLBACK_DM_NO_BIT = (
-    "hey — saw your post, good stuff. i build MVPs for founders at {brand}. what are you working on right now?",
+    "hey, saw your post, good stuff. i build MVPs for founders at {brand}. what are you working on right now?",
 )
 
 
@@ -286,18 +340,18 @@ def _fallback_post(posts: list[dict[str, Any]], agency: dict[str, Any], locale: 
     tags = " ".join((agency.get("competitor_hashtags") or ["#mvp", "#startup"])[:4])
     if locale == "india":
         return (
-            "Most founders don’t fail from lack of ideas.\n"
-            "They fail waiting for the “perfect” first version.\n\n"
+            "Most founders don't fail from lack of ideas.\n"
+            "They fail waiting for the \"perfect\" first version.\n\n"
             "Ship the thin slice. Learn. Iterate.\n\n"
-            f"That’s the build rhythm we keep at {brand}.\n"
-            f"→ {site}\n\n"
+            f"That's the build rhythm we keep at {brand}.\n"
+            f"{site}\n\n"
             f"{tags}"
         )
     return (
         "Stop polishing the pitch deck.\n"
         "Ship the smallest thing a real user can touch.\n\n"
         "Feedback beats fantasy every time.\n\n"
-        f"— {brand}\n"
+        f"{brand}\n"
         f"{site}\n\n"
         f"{tags}"
     )

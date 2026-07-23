@@ -177,13 +177,15 @@ def _analyzer_system_prompt(agency: dict[str, Any], context_note: str | None) ->
 
     This is OUR post going out under the brand's own voice (not a comment or
     DM on someone else's content), so it borrows the same brand-facts / locale
-    / banned-phrase guardrails used for organic post drafts and comment/DM
-    copy elsewhere in this codebase, to keep tone consistent app-wide.
+    / voice-guardrail rules used for organic post drafts and comment/DM copy
+    elsewhere in this codebase, to keep tone (and the "don't sound like AI"
+    fixes) consistent app-wide.
     """
     from ig_agent.propose import (
-        _BANNED_PHRASES_BLOCK,
         _brand_facts,
         _locale_voice_block,
+        _trending_hashtag_pool,
+        _voice_guardrails_block,
         detect_locale,
     )
 
@@ -196,24 +198,27 @@ def _analyzer_system_prompt(agency: dict[str, Any], context_note: str | None) ->
         )
     return (
         "Watch this video and write everything needed to post it to Instagram, in the "
-        "account's own voice — this is OUR content going out, not a comment on someone "
+        "account's own voice. This is OUR content going out, not a comment on someone "
         "else's post.\n"
         f"{_locale_voice_block(locale)}\n"
         f"{_brand_facts(agency)}\n"
+        f"{_trending_hashtag_pool(agency)}"
         f"{context_block}\n"
         "Output STRICT JSON only, no markdown fences, no explanation, in this exact shape:\n"
         '{"title": "...", "caption": "...", "hashtags": ["...", "..."]}\n\n'
         "RULES:\n"
-        "1. \"title\" is a short, punchy hook line (under 60 characters) — the kind of line "
+        "1. \"title\" is a short, punchy hook line (under 60 characters), the kind of line "
         "that would stop someone mid-scroll. Not a literal video description.\n"
-        "2. \"caption\" is the full Instagram caption: hook in line 1, 3–6 short lines, "
+        "2. \"caption\" is the full Instagram caption: hook in line 1, 3-6 short lines, "
         "grounded in what actually happens in the video (mention a specific moment, "
-        "number, or detail you saw). Soft brand close is fine but no strategy dump.\n"
-        "3. \"hashtags\" is a list of 8–15 lowercase hashtags (no '#' prefix) relevant to "
-        "the video's actual content — mix specific/niche tags with a couple of broader "
-        "ones. Don't repeat the same generic tags every time.\n"
-        "4. NEVER use any of these phrases or close variants — they read as robotic filler:\n"
-        f"{_BANNED_PHRASES_BLOCK}\n"
+        "number, or detail you saw). Write it the way a real creator would type a "
+        "caption on their phone. Soft brand close is fine but no strategy dump.\n"
+        "3. \"hashtags\" is a list of EXACTLY 4-5 lowercase hashtags (no '#' prefix). "
+        "Pick ones that are currently active/trending for this specific niche on "
+        "Instagram right now, the kind an actual creator in this space would use today. "
+        "No generic filler (love, instagood, motivation, viral) and no obscure tags "
+        "nobody searches. Fewer, sharper tags beat a long list.\n"
+        f"4. {_voice_guardrails_block()}\n"
         "5. Do not mention being an AI or reference this prompt."
     )
 
@@ -257,20 +262,24 @@ def analyze_video_for_caption(
         except Exception:
             pass
 
+    from ig_agent.propose import strip_ai_tell_symbols
+
     parsed = _extract_json_object(raw_text)
     if parsed:
-        title = str(parsed.get("title") or "").strip()
-        caption = str(parsed.get("caption") or "").strip()
+        title = strip_ai_tell_symbols(str(parsed.get("title") or "").strip()).strip()
+        caption = strip_ai_tell_symbols(str(parsed.get("caption") or "").strip()).strip()
         hashtags_raw = parsed.get("hashtags")
         hashtags = (
             [str(h).strip().lstrip("#").lower() for h in hashtags_raw if str(h).strip()]
             if isinstance(hashtags_raw, list)
             else []
         )
+        # Hard cap even if the model ignores the "4-5" instruction.
+        hashtags = hashtags[:5]
     else:
         # Degrade gracefully: keep the raw text as caption so the user can
         # still edit/fill title + hashtags by hand instead of a hard failure.
-        title, caption, hashtags = "", raw_text.strip(), []
+        title, caption, hashtags = "", strip_ai_tell_symbols(raw_text.strip()).strip(), []
 
     return {
         "title": title,
