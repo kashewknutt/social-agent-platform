@@ -25,6 +25,7 @@ from ig_agent.filter import filter_raw_file, load_agency_context
 from ig_agent.ingest import capture_trends_with_delays
 from ig_agent.multimodal import analyze_from_filtered_file
 from ig_agent.persist import init_db, list_interactions
+from ig_agent.posts import normalize_posts
 from ig_agent.propose import propose_interactions
 from ig_agent.safety import can_start_scroll_session, session_cooldown_seconds, usage_snapshot
 from ig_agent.synthesize import synthesize_dashboard
@@ -220,9 +221,72 @@ async def run_pipeline(controller: BotController, request: RunRequest) -> None:
             )
             controller.set_step("ingest", f"Ingested → {raw_path.name}")
 
+        def _post_row(p: dict[str, Any]) -> dict[str, Any]:
+            return {
+                "post_url": p.get("post_url"),
+                "caption": (p.get("caption") or p.get("raw_text") or "")[:240],
+                "likes": p.get("likes"),
+                "views": p.get("views"),
+                "comments_count": p.get("comments_count"),
+                "post_type": p.get("post_type"),
+                "username": p.get("username"),
+                "relevance_score": p.get("relevance_score"),
+                "reason": p.get("reason"),
+                "kept": bool(p.get("kept", (p.get("relevance_score") or 0) >= settings.relevance_threshold)),
+                "adaptable_hook": p.get("adaptable_hook"),
+            }
+
+        # Full placeholder row list so the Caught-reels table keeps a stable
+        # row count during filtering and scores fill in top-down, instead of
+        # the table looking "stuck" with nothing changing until the whole
+        # batch finishes.
+        try:
+            raw_json = json.loads(raw_path.read_text(encoding="utf-8"))
+            placeholder_posts = normalize_posts(raw_json.get("posts") or [])
+        except Exception:
+            placeholder_posts = []
+
+        def on_filter_progress(scored_so_far: list[dict[str, Any]], total: int) -> None:
+            kept_so_far = [p for p in scored_so_far if p.get("kept")]
+            rows = [_post_row(p) for p in scored_so_far]
+            remaining = placeholder_posts[len(scored_so_far) : total]
+            rows.extend(
+                _post_row({**p, "reason": p.get("reason") or "awaiting filter score"})
+                for p in remaining
+            )
+            controller.set_live(
+                {
+                    "stage": "filter",
+                    "threshold": settings.relevance_threshold,
+                    "caught": total,
+                    "kept": len(kept_so_far),
+                    "rejected": max(0, len(scored_so_far) - len(kept_so_far)),
+                    "posts": rows,
+                }
+            )
+            controller.set_step(
+                "filter",
+                f"Filtering for relevance ({len(scored_so_far)}/{total} scored)",
+            )
+
         await controller.checkpoint()
         controller.set_step("filter", "Filtering for relevance")
-        filtered_path = await asyncio.to_thread(filter_raw_file, raw_path, offline=request.offline)
+        try:
+            filtered_path = await asyncio.to_thread(
+                filter_raw_file,
+                raw_path,
+                offline=request.offline,
+                on_progress=on_filter_progress,
+            )
+        except Exception as exc:
+            controller.last_error = f"Filter step failed: {exc}"
+            controller.set_step("filter", f"Filtering failed ({exc}) — falling back to offline scoring")
+            filtered_path = await asyncio.to_thread(
+                filter_raw_file,
+                raw_path,
+                offline=True,
+                on_progress=on_filter_progress,
+            )
         filtered_data = json.loads(filtered_path.read_text(encoding="utf-8"))
         all_scored = list(filtered_data.get("all_scored") or filtered_data.get("posts") or [])
         filtered_count = int(filtered_data.get("post_count") or 0)
@@ -234,22 +298,7 @@ async def run_pipeline(controller: BotController, request: RunRequest) -> None:
                 "caught": len(all_scored) or int(filtered_data.get("normalized_input_count") or 0),
                 "kept": len(kept_posts),
                 "rejected": max(0, len(all_scored) - len(kept_posts)),
-                "posts": [
-                    {
-                        "post_url": p.get("post_url"),
-                        "caption": (p.get("caption") or p.get("raw_text") or "")[:240],
-                        "likes": p.get("likes"),
-                        "views": p.get("views"),
-                        "comments_count": p.get("comments_count"),
-                        "post_type": p.get("post_type"),
-                        "username": p.get("username"),
-                        "relevance_score": p.get("relevance_score"),
-                        "reason": p.get("reason"),
-                        "kept": bool(p.get("kept", p.get("relevance_score", 0) >= settings.relevance_threshold)),
-                        "adaptable_hook": p.get("adaptable_hook"),
-                    }
-                    for p in (all_scored or kept_posts)
-                ],
+                "posts": [_post_row(p) for p in (all_scored or kept_posts)],
             }
         )
         controller.set_step(

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import logging
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -11,6 +13,13 @@ from ig_agent.config import AGENCY_CONTEXT_PATH, FILTERED_DIR, RAW_DIR, Settings
 from ig_agent.llm import KimiClient
 from ig_agent.offline import score_all_posts_offline, score_posts_offline
 from ig_agent.posts import normalize_posts
+
+logger = logging.getLogger("ig_agent.filter")
+
+# Called with (scored_so_far, total_posts) after each batch finishes so the
+# caller can push progressive updates (e.g. Fleet's live Score/Gate column)
+# instead of one giant blocking call with zero feedback in between.
+ScoreProgressFn = Callable[[list[dict[str, Any]], int], None]
 
 
 def load_agency_context(path: Path | None = None) -> dict[str, Any]:
@@ -60,29 +69,27 @@ def _build_filter_prompt(agency_context: dict[str, Any], posts: list[dict[str, A
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-def score_all_posts(
+def _score_batch(
     posts: list[dict[str, Any]],
-    agency_context: dict[str, Any] | None = None,
-    settings: Settings | None = None,
-    offline: bool = False,
+    ctx: dict[str, Any],
+    cfg: Settings,
+    client: KimiClient,
+    *,
+    index_offset: int,
 ) -> list[dict[str, Any]]:
-    """Score every post; each item has relevance_score + kept bool."""
-    cfg = settings or get_settings()
-    ctx = agency_context or load_agency_context()
-    posts = normalize_posts(posts)
-    if not posts:
-        return []
-
-    if offline or not cfg.moonshot_api_key:
-        return score_all_posts_offline(posts, ctx, cfg.relevance_threshold)
-
-    client = KimiClient(cfg)
+    """Score one small batch of posts against Kimi; offline-score any that fail."""
     try:
         response = client.chat_json(
             _build_filter_prompt(ctx, posts),
             model=cfg.kimi_filter_model,
         )
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Kimi filter batch failed (%s post(s), offset %s): %s — offline-scoring batch",
+            len(posts),
+            index_offset,
+            exc,
+        )
         return score_all_posts_offline(posts, ctx, cfg.relevance_threshold)
 
     results = response.get("results", [])
@@ -108,17 +115,58 @@ def score_all_posts(
             "kept": score >= cfg.relevance_threshold,
         }
 
-    # Fill any missing indexes with offline scores
-    all_scored: list[dict[str, Any]] = []
+    from ig_agent.offline import score_one_offline
+
+    batch_scored: list[dict[str, Any]] = []
     for idx, post in enumerate(posts):
         if idx in by_idx:
-            all_scored.append(by_idx[idx])
+            batch_scored.append(by_idx[idx])
         else:
-            from ig_agent.offline import score_one_offline
-
             item = score_one_offline(post, idx, ctx)
             item["kept"] = item["relevance_score"] >= cfg.relevance_threshold
-            all_scored.append(item)
+            batch_scored.append(item)
+    return batch_scored
+
+
+def score_all_posts(
+    posts: list[dict[str, Any]],
+    agency_context: dict[str, Any] | None = None,
+    settings: Settings | None = None,
+    offline: bool = False,
+    on_progress: ScoreProgressFn | None = None,
+) -> list[dict[str, Any]]:
+    """Score every post in small batches; each item has relevance_score + kept bool.
+
+    Batching (settings.filter_batch_size) plus an optional on_progress callback
+    means a single slow/failed Kimi call only blocks its own batch — not the
+    whole run — and callers can push live updates after every batch instead of
+    waiting on one all-or-nothing call.
+    """
+    cfg = settings or get_settings()
+    ctx = agency_context or load_agency_context()
+    posts = normalize_posts(posts)
+    total = len(posts)
+    if not posts:
+        return []
+
+    if offline or not cfg.moonshot_api_key:
+        scored = score_all_posts_offline(posts, ctx, cfg.relevance_threshold)
+        if on_progress:
+            on_progress(scored, total)
+        return scored
+
+    client = KimiClient(cfg)
+    batch_size = max(1, cfg.filter_batch_size)
+    all_scored: list[dict[str, Any]] = []
+    for start in range(0, total, batch_size):
+        batch = posts[start : start + batch_size]
+        # Re-index each batch to 0..len(batch)-1 for the prompt, then map back.
+        batch_scored = _score_batch(batch, ctx, cfg, client, index_offset=start)
+        for offset, item in enumerate(batch_scored):
+            item["post_index"] = start + offset
+        all_scored.extend(batch_scored)
+        if on_progress:
+            on_progress(list(all_scored), total)
     return all_scored
 
 
@@ -137,6 +185,7 @@ def filter_raw_file(
     agency_context: dict[str, Any] | None = None,
     settings: Settings | None = None,
     offline: bool = False,
+    on_progress: ScoreProgressFn | None = None,
 ) -> Path:
     """Filter a single raw scrape file and write filtered output (kept + all scored)."""
     cfg = settings or get_settings()
@@ -146,7 +195,7 @@ def filter_raw_file(
         posts = raw_data["data"]
     posts = normalize_posts(posts)
 
-    all_scored = score_all_posts(posts, agency_context, cfg, offline=offline)
+    all_scored = score_all_posts(posts, agency_context, cfg, offline=offline, on_progress=on_progress)
     kept = [p for p in all_scored if p.get("kept")]
     output = {
         "source_file": raw_path.name,

@@ -57,6 +57,12 @@ class Settings:
     kimi_browser_model: str = field(
         default_factory=lambda: os.getenv("KIMI_BROWSER_MODEL", "kimi-k2.6")
     )
+    kimi_request_timeout_s: float = field(
+        default_factory=lambda: float(os.getenv("KIMI_REQUEST_TIMEOUT_S", "45"))
+    )
+    filter_batch_size: int = field(
+        default_factory=lambda: int(os.getenv("FILTER_BATCH_SIZE", "6"))
+    )
     chrome_path: str = field(
         default_factory=lambda: os.getenv("CHROME_PATH", _default_chrome_path())
     )

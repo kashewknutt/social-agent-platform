@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import re
 from pathlib import Path
 from typing import Any, Literal
@@ -103,23 +104,41 @@ def detect_locale(post: dict[str, Any], agency: dict[str, Any]) -> Locale:
     return "india"
 
 
+# Phrases that have crept into generated copy and now read as robotic tells.
+# Listed explicitly so the model actively avoids them instead of drifting
+# back into the same 2-3 constructions every time.
+_BANNED_PHRASES = (
+    "this hit home",
+    "this landed",
+    "felt that",
+    "founder instinct",
+    "founder journey",
+    "resonated with",
+    "caught your line",
+    "sharp take",
+    "great post",
+    "love this",
+    "so true",
+    "needed that reminder",
+    "shipping > overthinking",
+)
+_BANNED_PHRASES_BLOCK = "\n".join(f"- \"{p}\"" for p in _BANNED_PHRASES)
+
+
 def _locale_voice_block(locale: Locale) -> str:
     if locale == "india":
         return (
-            "LOCALE: India (Indian English).\n"
-            "Tone: warm, respectful, peer-to-peer founder chat — like a thoughtful WhatsApp note.\n"
-            "Use natural Indian-English rhythm without stiff corporate phrases "
-            "(never: 'do the needful', 'respected sir', 'kindly revert', 'as per').\n"
-            "Contractions are fine. Soften the ask. Sound human, not salesy.\n"
-            "Prefer: 'Hey', 'Loved this', 'This hit home', 'Would love to swap notes'."
+            "LOCALE: India (Indian English), but casual — like texting a friend, not "
+            "writing a LinkedIn post.\n"
+            "Skip stiff corporate phrases entirely (never: 'do the needful', "
+            "'respected sir', 'kindly revert', 'as per').\n"
+            "Contractions are fine. Lowercase-first is fine — capitalize only for emphasis."
         )
     return (
-        "LOCALE: United States (American English).\n"
-        "Tone: candid, concise, direct — respect their time.\n"
-        "Short sentences (≤15 words when possible). No fluff openings "
-        "('Hope this finds you well', 'Just circling back').\n"
-        "Sound like a sharp founder peer texting, not a marketing email.\n"
-        "Prefer: 'Hey', 'This landed', 'Curious how you're thinking about…'."
+        "LOCALE: United States (American English), casual and direct.\n"
+        "Short sentences. No fluff openings ('Hope this finds you well', "
+        "'Just circling back').\n"
+        "Contractions are fine. Lowercase-first is fine — capitalize only for emphasis."
     )
 
 
@@ -128,47 +147,58 @@ def _brand_facts(agency: dict[str, Any]) -> str:
     site = agency.get("website") or "https://valnee.com"
     voice = agency.get("brand_voice") or "direct, founder-friendly"
     return (
-        f"Brand (for light context only — do NOT paste these bullets into the message):\n"
+        f"Brand (background only — never paste these bullets into the message):\n"
         f"- Name: {brand}\n"
         f"- Site: {site}\n"
         f"- Voice: {voice}\n"
-        f"- One-line offer (paraphrase lightly if needed, never dump goals verbatim): "
+        f"- One-line offer (paraphrase lightly, never dump verbatim): "
         f"fixed-price MVP partner, guaranteed launch date, full code ownership."
     )
 
 
 def _system_prompt_comment(locale: Locale, agency: dict[str, Any]) -> str:
     return (
-        "You write Instagram comments that sound like a real person, not a brand bot.\n"
-        f"{_locale_voice_block(locale)}\n"
-        f"{_brand_facts(agency)}\n\n"
-        "RULES:\n"
+        "You are a real person scrolling Instagram, leaving a quick comment — not an AI, "
+        "not a brand account, not a marketer. You comment the way you'd actually text a "
+        "friend: a little casual, a little imperfect, always specific.\n"
+        f"{_locale_voice_block(locale)}\n\n"
+        "HOW TO WRITE — read the caption below FIRST, then react to it:\n"
         "1. Output ONLY the comment text. No quotes, no labels, no explanation.\n"
-        "2. 1–2 short sentences. Max ~180 characters.\n"
-        "3. React to a SPECIFIC detail in their caption (quote a short phrase or idea).\n"
-        "4. Do NOT pitch Valnee, paste goals, list pillars, or say 'From Valnee'.\n"
-        "5. Do NOT include links, hashtags piles, or call-to-action CTAs.\n"
-        "6. No emojis overload — at most one emoji if it fits the caption energy.\n"
-        "7. Never start with 'Sharp take' or 'Great post!!!'."
+        "2. 1–2 short sentences, under 180 characters.\n"
+        "3. Pull ONE concrete detail from their actual caption — a number, a tool, a "
+        "decision, a specific line — and react to THAT in your own words. Do not "
+        "generalize it into a life lesson or motivational one-liner.\n"
+        "4. End with a genuine, specific observation or a short, low-stakes question — "
+        "never a call-to-action, never a sales pitch.\n"
+        "5. At most ONE emoji, only if it truly fits — most comments should use zero.\n"
+        "6. Do NOT mention Valnee, pitch anything, or reference being an assistant/bot/AI.\n"
+        "7. NEVER use any of these phrases or close variants of them — they read as "
+        "robotic filler:\n"
+        f"{_BANNED_PHRASES_BLOCK}\n"
+        "If you catch yourself about to write one of those, stop and say something more "
+        "specific about THIS caption instead."
     )
 
 
 def _system_prompt_dm(locale: Locale, agency: dict[str, Any]) -> str:
     return (
-        "You write cold Instagram DMs that start a conversation — peer to peer.\n"
+        "You are a real founder sliding into someone's DMs after seeing their post — "
+        "curious and specific, not running a sales script.\n"
         f"{_locale_voice_block(locale)}\n"
         f"{_brand_facts(agency)}\n\n"
-        "RULES:\n"
+        "HOW TO WRITE:\n"
         "1. Output ONLY the DM text. No quotes, no labels, no explanation.\n"
-        "2. 2–4 short sentences. Under 320 characters. Mobile-readable.\n"
-        "3. Open with a specific observation about THEIR post (not about us).\n"
-        "4. Soft mention who you are in one short clause max "
-        "(e.g. 'I help founders ship MVPs at Valnee') — never paste company goals "
-        "or parenthetical strategy blurbs.\n"
-        "5. End with exactly ONE easy question (no stacked asks).\n"
-        "6. No hard pitch, no 'book a call', no dumping website + value props.\n"
-        "7. Never use: 'resonated with what X does (…goals…)'.\n"
-        "8. Optional: one light valnee.com mention only if it fits naturally — not required."
+        "2. 2–4 short sentences, under 320 characters, mobile-readable.\n"
+        "3. Open by reacting to ONE concrete, specific detail from their post — quote or "
+        "reference it directly. Do not open with a generic compliment.\n"
+        "4. Weave in who you are in ONE short clause, naturally (e.g. 'I build MVPs for "
+        "founders over at valnee.com') — never paste goals, pillars, or a value-prop list.\n"
+        "5. End with exactly ONE easy question tied to what THEY posted — not a generic "
+        "'what are you building?' unless nothing more specific fits.\n"
+        "6. No hard pitch, no 'book a call', no link-dumping, no stacked asks.\n"
+        "7. NEVER use any of these phrases or close variants of them — they read as "
+        "robotic filler:\n"
+        f"{_BANNED_PHRASES_BLOCK}"
     )
 
 
@@ -200,42 +230,54 @@ def _clean_model_text(text: str) -> str:
     return out.strip()
 
 
+# Varied, cliché-free templates used only when the LLM call fails — kept
+# short and rotated (not always the same construction) so an offline
+# fallback doesn't reintroduce the same robotic phrase every time.
+_FALLBACK_COMMENT_WITH_BIT = (
+    "wait, \"{bit}\" — okay yeah, makes sense.",
+    "\"{bit}\" is the part that got me. how'd that actually play out?",
+    "ok \"{bit}\" is a good line ngl.",
+    "the \"{bit}\" bit — curious what happened right after that.",
+)
+_FALLBACK_COMMENT_NO_BIT = (
+    "okay this is a solid one, saving it.",
+    "good one — screenshotting this.",
+    "this is a nice, quiet kind of good.",
+)
+
+
 def _fallback_comment(post: dict[str, Any], locale: Locale) -> str:
     caption = (post.get("caption") or "").strip()
     bit = ""
     if caption:
-        # Grab a short memorable chunk
         words = caption.split()
         bit = " ".join(words[:8]).rstrip(".,!?")
         if len(bit) > 48:
             bit = bit[:48].rstrip() + "…"
-    if locale == "india":
-        if bit:
-            return f"This hit home — especially “{bit}”. Needed that reminder."
-        return "Solid reminder for founders who overthink the first build."
-    if bit:
-        return f"This landed — “{bit}”. More people need to hear that."
-    return "Clean take. Shipping > overthinking."
+    templates = _FALLBACK_COMMENT_WITH_BIT if bit else _FALLBACK_COMMENT_NO_BIT
+    template = random.choice(templates)
+    return template.format(bit=bit) if bit else template
+
+
+_FALLBACK_DM_WITH_BIT = (
+    "hey — \"{bit}\" caught my eye. i build MVPs for founders at {brand}. what's the story behind that?",
+    "hey, saw your post — \"{bit}\" is a good detail. i help founders ship MVPs at {brand}. how far along is this?",
+)
+_FALLBACK_DM_NO_BIT = (
+    "hey — saw your post, good stuff. i build MVPs for founders at {brand}. what are you working on right now?",
+)
 
 
 def _fallback_dm(post: dict[str, Any], locale: Locale, agency: dict[str, Any]) -> str:
     brand = agency.get("brand_name") or "Valnee"
     caption = (post.get("caption") or "").strip()
     words = caption.split()
-    bit = " ".join(words[:6]).rstrip(".,!?") if words else "your build-in-public note"
+    bit = " ".join(words[:6]).rstrip(".,!?") if words else ""
     if len(bit) > 40:
         bit = bit[:40].rstrip() + "…"
-    if locale == "india":
-        return (
-            f"Hey — caught your line about “{bit}” and it stuck with me. "
-            f"I help founders ship MVPs at {brand}. "
-            f"Curious — are you building something right now?"
-        )
-    return (
-        f"Hey — your bit on “{bit}” was sharp. "
-        f"I help founders ship MVPs at {brand}. "
-        f"What are you building these days?"
-    )
+    templates = _FALLBACK_DM_WITH_BIT if bit else _FALLBACK_DM_NO_BIT
+    template = random.choice(templates)
+    return template.format(bit=bit, brand=brand)
 
 
 def _fallback_post(posts: list[dict[str, Any]], agency: dict[str, Any], locale: Locale) -> str:
@@ -285,12 +327,15 @@ def _llm_draft(
 def _post_context_block(post: dict[str, Any]) -> str:
     username = _username_from_post(post) or post.get("username") or "unknown"
     caption = (post.get("caption") or post.get("raw_text") or "").strip() or "(no caption)"
-    return (
-        f"Creator: @{username}\n"
-        f"Post type: {post.get('post_type') or 'post'}\n"
-        f"Caption:\n{caption[:600]}\n"
-        f"Relevance note (internal): {post.get('reason') or 'n/a'}"
-    )
+    lines = [
+        f"Creator: @{username}",
+        f"Post type: {post.get('post_type') or 'post'}",
+        f"Caption:\n{caption[:600]}",
+    ]
+    hook = post.get("adaptable_hook")
+    if hook:
+        lines.append(f"Specific detail worth reacting to (internal note): {hook}")
+    return "\n".join(lines)
 
 
 def draft_comment(post: dict[str, Any], agency: dict[str, Any], settings: Settings | None = None) -> str:

@@ -594,7 +594,7 @@
               const scored = score != null;
               const gate = scored
                 ? (isKept ? `<span class="badge-kept">kept</span>` : `<span class="badge-drop">below ${threshold}</span>`)
-                : `<span class="empty">${stage === "ingest" ? "catching…" : "unscored"}</span>`;
+                : `<span class="empty">${stage === "ingest" ? "catching…" : (stage === "filter" ? "scoring…" : "unscored")}</span>`;
               const cap = (p.caption || "").trim();
               const looksLikeNoise = /AgentOutput\(|thinking=/.test(cap);
               const title = looksLikeNoise

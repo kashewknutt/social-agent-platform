@@ -23,6 +23,10 @@ class KimiClient:
         self._client = OpenAI(
             api_key=self.settings.moonshot_api_key,
             base_url=self.settings.kimi_base_url,
+            # Hard cap so a slow/stuck Moonshot call can't hang scoring/drafting
+            # forever — callers fall back to offline logic on timeout.
+            timeout=self.settings.kimi_request_timeout_s,
+            max_retries=1,
         )
 
     def chat(

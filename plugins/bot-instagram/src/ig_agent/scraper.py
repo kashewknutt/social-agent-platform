@@ -27,12 +27,23 @@ _REEL_META_JS = """
   const og = document.querySelector('meta[property="og:description"]');
   const caption = og ? (og.getAttribute('content') || '') : '';
   let username = '';
-  for (const a of document.querySelectorAll('a[href^="/"]')) {
+  const skip = new Set(['p','reel','reels','explore','accounts','direct','stories','tags']);
+  for (const a of document.querySelectorAll('header a[href^="/"], article a[href^="/"]')) {
     const h = a.getAttribute('href') || '';
     const m = h.match(/^\\/([a-zA-Z0-9._]+)\\/?$/);
-    if (m && !['p','reel','reels','explore','accounts','direct'].includes(m[1])) {
+    if (m && !skip.has(m[1].toLowerCase())) {
       username = m[1];
       break;
+    }
+  }
+  if (!username) {
+    for (const a of document.querySelectorAll('a[href^="/"]')) {
+      const h = a.getAttribute('href') || '';
+      const m = h.match(/^\\/([a-zA-Z0-9._]+)\\/?$/);
+      if (m && !skip.has(m[1].toLowerCase())) {
+        username = m[1];
+        break;
+      }
     }
   }
   return { og_url: ogUrl, canonical, caption: caption.slice(0, 500), username };
@@ -312,6 +323,48 @@ async def scrape_post_detail(
     }
 
 
+async def engage_current_post(
+    browser: Any,
+    post: dict[str, Any],
+    *,
+    settings: Settings | None = None,
+) -> dict[str, Any]:
+    """Like the post/reel and follow the poster on the current screen (not comment rows)."""
+    from ig_agent.safety import can_perform
+    from ig_agent.scripted_actions import (
+        ScriptedActionError,
+        scripted_follow_current,
+        scripted_like_current,
+    )
+
+    cfg = settings or get_settings()
+    out = dict(post)
+    if can_perform("like", cfg):
+        try:
+            res = await scripted_like_current(browser, settings=cfg)
+            out["liked"] = res.ok
+        except ScriptedActionError as exc:
+            logger.debug("engage like failed: %s", exc)
+            out["liked"] = False
+        except Exception as exc:
+            logger.debug("engage like failed: %s", exc)
+            out["liked"] = False
+    if can_perform("follow", cfg):
+        try:
+            res = await scripted_follow_current(browser, settings=cfg)
+            out["followed"] = res.ok
+        except ScriptedActionError as exc:
+            logger.debug("engage follow skipped: %s", exc)
+            out["followed"] = False
+        except Exception as exc:
+            logger.debug("engage follow skipped: %s", exc)
+            out["followed"] = False
+    username = out.get("username")
+    if username and not out.get("profile_url"):
+        out["profile_url"] = f"https://www.instagram.com/{username}/"
+    return out
+
+
 async def scripted_reels_ingest(
     browser: Any,
     *,
@@ -323,10 +376,8 @@ async def scripted_reels_ingest(
     run_id: str | None = None,
     should_stop: Any | None = None,
 ) -> list[dict[str, Any]]:
-    """Scroll the Reels feed, capture each reel, like + optional live comment."""
+    """Scroll the Reels feed, capture each reel, like + follow + optional live comment."""
     from ig_agent.ingest_comment_gate import prompt_and_post_ingest_comment
-    from ig_agent.safety import can_perform
-    from ig_agent.scripted_actions import scripted_follow, scripted_like_current
 
     cfg = settings or get_settings()
     page = await _navigate_and_get_page(browser, "https://www.instagram.com/reels/")
@@ -358,23 +409,8 @@ async def scripted_reels_ingest(
         if current:
             url = str(current["post_url"])
             seen_urls.add(url)
-            if engage_live and can_perform("like", cfg):
-                try:
-                    res = await scripted_like_current(browser, settings=cfg)
-                    current["liked"] = res.ok
-                except Exception as exc:
-                    logger.debug("reels like failed: %s", exc)
-            if engage_live and current.get("username") and can_perform("follow", cfg):
-                try:
-                    res = await scripted_follow(
-                        browser,
-                        profile_url=current.get("profile_url"),
-                        username=current.get("username"),
-                        settings=cfg,
-                    )
-                    current["followed"] = res.ok
-                except Exception as exc:
-                    logger.debug("reels follow skipped: %s", exc)
+            if engage_live:
+                current = await engage_current_post(browser, current, settings=cfg)
             current = await prompt_and_post_ingest_comment(
                 browser,
                 current,
@@ -419,13 +455,27 @@ async def scrape_research_batch(
     should_stop: Any | None = None,
 ) -> list[dict[str, Any]]:
     """Scrape candidates + enrich detail; optionally like/follow via scripted actions."""
-    from ig_agent.safety import can_perform
-    from ig_agent.scripted_actions import scripted_follow, scripted_like
-
     cfg = settings or get_settings()
     tags = hashtags or []
     candidates: list[dict[str, Any]] = []
     errors: list[str] = []
+
+    # Reels scroll ingest is best for live like/follow — avoids opening post pages with comment threads.
+    if engage_live:
+        try:
+            return await scripted_reels_ingest(
+                browser,
+                limit=limit,
+                engage_live=True,
+                settings=cfg,
+                on_progress=on_progress,
+                controller=controller,
+                run_id=run_id,
+                should_stop=should_stop,
+            )
+        except ScrapeError as exc:
+            logger.warning("Reels ingest failed, trying hashtag/grid: %s", exc)
+            errors.append(f"reels: {exc.detail}")
 
     # Fresh hashtag first (rotated in runtime) — avoid repeating recent tags.
     if tags:
@@ -457,7 +507,7 @@ async def scrape_research_batch(
                 should_stop=should_stop,
             )
         except ScrapeError as exc:
-            logger.warning("Reels ingest failed, trying explore grid: %s", exc)
+            logger.warning("Reels ingest retry failed, trying explore grid: %s", exc)
 
     if not candidates:
         for source, fn in (
@@ -493,27 +543,11 @@ async def scrape_research_batch(
             merged = {**post, **{k: v for k, v in detail.items() if v}}
         except ScrapeError:
             merged = dict(post)
-        liked = False
-        followed = False
-        if engage_live and can_perform("like", cfg):
-            try:
-                res = await scripted_like(browser, url, settings=cfg)
-                liked = res.ok
-            except Exception as exc:
-                logger.debug("scripted like during scrape failed: %s", exc)
-        if engage_live and merged.get("username") and can_perform("follow", cfg):
-            try:
-                res = await scripted_follow(
-                    browser,
-                    profile_url=merged.get("profile_url"),
-                    username=merged.get("username"),
-                    settings=cfg,
-                )
-                followed = res.ok
-            except Exception as exc:
-                logger.debug("scripted follow during scrape failed: %s", exc)
-        merged["liked"] = liked
-        merged["followed"] = followed
+        if engage_live:
+            merged = await engage_current_post(browser, merged, settings=cfg)
+        else:
+            merged.setdefault("liked", False)
+            merged.setdefault("followed", False)
         enriched.append(merged)
         await asyncio.sleep(0.3 + random.uniform(0.1, 0.3))
 

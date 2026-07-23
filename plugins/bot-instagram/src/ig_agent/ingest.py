@@ -49,17 +49,16 @@ def _build_ingest_task(
         tag_clause = f" Prefer hashtags: {', '.join(tags)}."
 
     n = settings.max_posts_per_session
-    target = max(3, min(n, 5))
+    target = max(1, n)
     likes_left = remaining_cap("like", settings)
     follows_left = remaining_cap("follow", settings)
 
     if engage_live:
         engage_block = (
             "4) On EACH reel/post you open (fast):\n"
-            "   - Like immediately (heart).\n"
-            "   - Follow ONLY if a Follow button is visible on this same screen — "
-            "do NOT open the profile just to follow.\n"
-            "   - Then leave. Never re-like, never re-read the same caption, never sit on one post.\n"
+            "   - Do NOT click Like or Follow yourself — scripted automation handles post likes "
+            "and follows on the current screen.\n"
+            "   - Scroll to the next reel/post quickly. Never sit on one post.\n"
             f"   - Soft room left: likes≈{likes_left}, follows≈{follows_left}.\n"
             "   - No comments, DMs, saves, or new posts.\n"
         )
@@ -383,7 +382,7 @@ async def _capture_trends_scripted(
             on_progress(msg)
         logger.info(msg)
 
-    limit = max(2, min(cfg.max_posts_per_session, 4))
+    limit = max(1, cfg.max_posts_per_session)
     progress(f"Scripted scrape (target {limit} posts, engage={'ON' if engage_live else 'OFF'})…")
 
     browser = make_browser_session(cfg, headless=False)
@@ -455,9 +454,7 @@ async def _capture_trends_llm(
     from browser_use import Agent
 
     from ig_agent.browser_factory import make_browser_session, safe_kill
-    from ig_agent.scraper import harvest_posts_from_browser
-    from ig_agent.scripted_actions import scripted_like_current
-    from ig_agent.safety import can_perform
+    from ig_agent.scraper import engage_current_post, harvest_posts_from_browser
 
     if not can_start_scroll_session(cfg):
         raise RuntimeError(
@@ -473,7 +470,7 @@ async def _capture_trends_llm(
     browser = make_browser_session(cfg, headless=False)
     task = _build_ingest_task(cfg, hashtags, engage_live=engage_live)
     # Keep research passes short — lingering on one reel for minutes is useless.
-    target_posts = max(2, min(cfg.max_posts_per_session, 4))
+    target_posts = max(1, cfg.max_posts_per_session)
     max_steps = 8 if engage_live else 7
     overall_timeout = 180 if engage_live else 150  # 3 / 2.5 minutes hard cap
     stuck_limit = 2  # same URL for this many steps → bail
@@ -508,15 +505,14 @@ async def _capture_trends_llm(
     async def stop_callback() -> bool:
         return _should_force_stop()
 
-    async def _like_visible_reel(posts: list[dict[str, Any]]) -> None:
-        if not engage_live or not posts or not can_perform("like", cfg):
+    async def _engage_visible_reel(posts: list[dict[str, Any]]) -> None:
+        if not engage_live or not posts:
             return
         try:
-            res = await scripted_like_current(browser, settings=cfg)
-            if res.ok and posts:
-                posts[-1]["liked"] = True
+            head = await engage_current_post(browser, posts[0], settings=cfg)
+            posts[0] = head
         except Exception:
-            logger.debug("Live like on visible reel failed", exc_info=True)
+            logger.debug("Live engage on visible reel failed", exc_info=True)
 
     async def on_step_end(agent_obj: Any) -> None:
         step_count["n"] += 1
@@ -528,7 +524,7 @@ async def _capture_trends_llm(
         try:
             dom_posts = await harvest_posts_from_browser(browser)
             if dom_posts:
-                await _like_visible_reel(dom_posts)
+                await _engage_visible_reel(dom_posts)
                 prompted: set[str] = agent_ref["comment_prompted_urls"]
                 head = dom_posts[0]
                 head_url = str(head.get("post_url") or "")

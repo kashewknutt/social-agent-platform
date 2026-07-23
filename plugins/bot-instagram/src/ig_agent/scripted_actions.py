@@ -11,6 +11,7 @@ from datetime import date
 from typing import Any, Literal
 
 from ig_agent.config import DATA_DIR, Settings, get_settings
+from ig_agent.posts import canonicalize_ig_url
 
 logger = logging.getLogger("ig_agent.scripted_actions")
 
@@ -40,16 +41,204 @@ _CHALLENGE_MARKERS = (
     "action blocked",
 )
 
-_LIKE_SELECTORS = (
-    'svg[aria-label="Like"]',
-    'svg[aria-label="Like post"]',
-    'span svg[aria-label="Like"]',
+def _parse_eval(raw: Any) -> Any:
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, (dict, list, bool, int, float)):
+        return raw
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return None
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return text
+    return raw
+
+
+# Post/reel like — never comment-row hearts (highlighted comment, thread, etc.)
+_IS_COMMENT_CTX_FN = """
+function isCommentCtx(el) {
+  if (!el) return true;
+  if (el.closest('[role="dialog"]')) return true;
+  if (el.closest('form, textarea')) return true;
+  if (el.closest('ul, ol, li, [role="list"], [role="listitem"]')) return true;
+  if (el.closest('a[href*="/c/"]')) return true;
+  let node = el;
+  for (let i = 0; i < 14 && node; i++) {
+    if (node.querySelector && node.querySelector('svg[aria-label="Reply"], svg[aria-label="Reply…"]')) {
+      return true;
+    }
+    if (
+      node.querySelector &&
+      node.querySelector('time[datetime]') &&
+      node.querySelector('a[href*="/p/"], a[href*="/reel/"]')
+    ) {
+      return true;
+    }
+    if ((node.tagName || '').toLowerCase() === 'li') return true;
+    node = node.parentElement;
+  }
+  return false;
+}
+"""
+
+_FIND_POST_LIKE_SVG_JS = (
+    """
+() => {
+"""
+    + _IS_COMMENT_CTX_FN
+    + """
+  const likeLabels = ['Like', 'Like post'];
+  for (const root of document.querySelectorAll('article, main')) {
+    for (const section of root.querySelectorAll('section')) {
+      const hasComment = section.querySelector(
+        'svg[aria-label="Comment"], svg[aria-label="Comment post"], svg[aria-label="View comments"]'
+      );
+      if (!hasComment) continue;
+      for (const label of likeLabels) {
+        for (const s of section.querySelectorAll(`svg[aria-label="${label}"]`)) {
+          if (!isCommentCtx(s)) return s;
+        }
+      }
+    }
+  }
+  const video = document.querySelector('video');
+  if (video) {
+    const vr = video.getBoundingClientRect();
+    let best = null;
+    let bestScore = -1e9;
+    for (const label of likeLabels) {
+      for (const svg of document.querySelectorAll(`svg[aria-label="${label}"]`)) {
+        if (isCommentCtx(svg)) continue;
+        const r = svg.getBoundingClientRect();
+        if (!r.width || !r.height) continue;
+        if (r.left < vr.left + vr.width * 0.42) continue;
+        if (r.top > vr.bottom + 48) continue;
+        let score = r.left * 4;
+        score -= Math.abs(r.top + r.height / 2 - (vr.top + vr.height * 0.32));
+        if (score > bestScore) {
+          bestScore = score;
+          best = svg;
+        }
+      }
+    }
+    if (best) return best;
+  }
+  const article = document.querySelector('article');
+  if (article) {
+    for (const label of likeLabels) {
+      for (const svg of article.querySelectorAll(`svg[aria-label="${label}"]`)) {
+        if (!isCommentCtx(svg)) return svg;
+      }
+    }
+  }
+  return null;
+}
+"""
 )
 
-_UNLIKE_SELECTORS = (
-    'svg[aria-label="Unlike"]',
-    'svg[aria-label="Unlike post"]',
+_POST_IS_LIKED_JS = (
+    """
+() => {
+"""
+    + _IS_COMMENT_CTX_FN
+    + """
+  for (const label of ['Unlike', 'Unlike post']) {
+    for (const svg of document.querySelectorAll(`svg[aria-label="${label}"]`)) {
+      if (!isCommentCtx(svg)) return true;
+    }
+  }
+  return false;
+}
+"""
 )
+
+_POST_LIKE_CLICK_JS = (
+    """
+() => {
+"""
+    + _IS_COMMENT_CTX_FN
+    + """
+  const likeLabels = ['Like', 'Like post'];
+  const findSvg = () => {
+    for (const root of document.querySelectorAll('article, main')) {
+      for (const section of root.querySelectorAll('section')) {
+        const hasComment = section.querySelector(
+          'svg[aria-label="Comment"], svg[aria-label="Comment post"], svg[aria-label="View comments"]'
+        );
+        if (!hasComment) continue;
+        for (const label of likeLabels) {
+          for (const s of section.querySelectorAll(`svg[aria-label="${label}"]`)) {
+            if (!isCommentCtx(s)) return s;
+          }
+        }
+      }
+    }
+    const video = document.querySelector('video');
+    if (video) {
+      const vr = video.getBoundingClientRect();
+      let best = null;
+      let bestScore = -1e9;
+      for (const label of likeLabels) {
+        for (const svg of document.querySelectorAll(`svg[aria-label="${label}"]`)) {
+          if (isCommentCtx(svg)) continue;
+          const r = svg.getBoundingClientRect();
+          if (!r.width || !r.height) continue;
+          if (r.left < vr.left + vr.width * 0.42) continue;
+          if (r.top > vr.bottom + 48) continue;
+          let score = r.left * 4;
+          score -= Math.abs(r.top + r.height / 2 - (vr.top + vr.height * 0.32));
+          if (score > bestScore) {
+            bestScore = score;
+            best = svg;
+          }
+        }
+      }
+      if (best) return best;
+    }
+    const article = document.querySelector('article');
+    if (article) {
+      for (const label of likeLabels) {
+        for (const svg of article.querySelectorAll(`svg[aria-label="${label}"]`)) {
+          if (!isCommentCtx(svg)) return svg;
+        }
+      }
+    }
+    return null;
+  };
+  const svg = findSvg();
+  if (!svg) return { ok: false, reason: 'no_post_like' };
+  const clickEl = svg.closest('button, div[role="button"]') || svg.parentElement || svg;
+  clickEl.click();
+  return { ok: true, already: false };
+}
+"""
+)
+
+_FOLLOW_CURRENT_JS = """
+() => {
+  for (const el of document.querySelectorAll('button, div[role="button"]')) {
+    const t = (el.innerText || el.textContent || '').trim();
+    if (/^(Following|Requested)$/i.test(t)) {
+      return { ok: true, already: true, state: t };
+    }
+  }
+  const roots = document.querySelectorAll('article, main');
+  const searchIn = roots.length ? [...roots] : [document.body];
+  for (const root of searchIn) {
+    for (const el of root.querySelectorAll('button, div[role="button"]')) {
+      const t = (el.innerText || el.textContent || '').trim();
+      if (t === 'Follow') {
+        el.click();
+        return { ok: true, already: false };
+      }
+    }
+  }
+  return { ok: false, reason: 'no_follow_button' };
+}
+"""
 
 _COMMENT_TEXTAREA_SELECTORS = (
     'textarea[aria-label="Add a comment…"]',
@@ -171,29 +360,95 @@ async def _click_first(page: Any, selectors: tuple[str, ...], timeout: float) ->
     return False
 
 
-async def _is_liked(page: Any) -> bool:
-    for sel in _UNLIKE_SELECTORS:
-        els = await page.get_elements_by_css_selector(sel)
-        if els:
-            return True
-    return False
+async def _is_post_liked(page: Any) -> bool:
+    raw = await page.evaluate(_POST_IS_LIKED_JS)
+    parsed = _parse_eval(raw)
+    if isinstance(parsed, bool):
+        return parsed
+    return str(parsed).lower() in {"true", "1"}
+
+
+async def _click_post_like(page: Any) -> tuple[bool, bool]:
+    """Click the post/reel like control. Returns (clicked_or_already, already_liked)."""
+    raw = await page.evaluate(_POST_LIKE_CLICK_JS)
+    parsed = _parse_eval(raw)
+    if isinstance(parsed, dict):
+        if parsed.get("already"):
+            return True, True
+        return bool(parsed.get("ok")), False
+    return False, False
 
 
 async def _double_tap_reel(page: Any) -> bool:
-    tapped = await page.evaluate(
+    raw = await page.evaluate(
         """() => {
   const v = document.querySelector('video');
-  if (!v) return false;
+  if (!v) return null;
   const r = v.getBoundingClientRect();
-  const x = r.left + r.width / 2;
-  const y = r.top + r.height / 2;
-  for (const type of ['pointerdown', 'pointerup', 'click']) {
-    v.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y }));
-  }
-  return true;
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
 }"""
     )
+    parsed = _parse_eval(raw)
+    if not isinstance(parsed, dict):
+        return False
+    x, y = parsed.get("x"), parsed.get("y")
+    if x is None or y is None:
+        return False
+    mouse = getattr(page, "mouse", None)
+    if mouse is not None:
+        try:
+            await mouse.click(float(x), float(y), click_count=2)
+            return True
+        except Exception:
+            logger.debug("mouse double-click failed, falling back to JS", exc_info=True)
+    tapped = await page.evaluate(
+        """(coords) => {
+  const v = document.querySelector('video');
+  if (!v) return false;
+  const x = coords.x;
+  const y = coords.y;
+  for (let n = 0; n < 2; n++) {
+    for (const type of ['pointerdown', 'pointerup', 'click']) {
+      v.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+    }
+  }
+  return true;
+}""",
+        {"x": x, "y": y},
+    )
     return str(tapped).lower() in {"true", "1"}
+
+
+async def scripted_follow_current(
+    browser: Any,
+    *,
+    settings: Settings | None = None,
+) -> ActionResult:
+    """Follow the poster from the reel/post currently on screen (no profile navigation)."""
+    _ = settings or get_settings()
+    page = await _ensure_page(browser)
+    await _dismiss_known_dialogs(page)
+    raw = await page.evaluate(_FOLLOW_CURRENT_JS)
+    parsed = _parse_eval(raw)
+    if isinstance(parsed, dict):
+        if parsed.get("already"):
+            state = str(parsed.get("state") or "Following")
+            return ActionResult(True, f"Already {state}", already_done=True)
+        if parsed.get("ok"):
+            await asyncio.sleep(0.5)
+            after = await page.evaluate(
+                """() => {
+  for (const el of document.querySelectorAll('button, div[role="button"]')) {
+    const t = (el.innerText || el.textContent || '').trim();
+    if (/^(Following|Requested)$/i.test(t)) return t;
+  }
+  return '';
+}"""
+            )
+            if str(after or "").strip():
+                return ActionResult(True, f"Followed on-screen ({after})")
+            return ActionResult(True, "Follow clicked on-screen")
+    raise ScriptedActionError("selector_not_found", "Follow button not found on current view")
 
 
 async def scripted_like_current(
@@ -203,20 +458,23 @@ async def scripted_like_current(
 ) -> ActionResult:
     """Like the reel/post currently on screen (no navigation away)."""
     cfg = settings or get_settings()
-    timeout = cfg.scripted_action_timeout
     page = await _ensure_page(browser)
     await _dismiss_known_dialogs(page)
-    if await _is_liked(page):
+    if await _is_post_liked(page):
         return ActionResult(True, "Already liked", already_done=True)
-    if await _click_first(page, _LIKE_SELECTORS, timeout):
-        await asyncio.sleep(0.45)
-        if await _is_liked(page):
-            return ActionResult(True, "Liked current post (heart button)")
+    # Double-tap the video first on reels — never hits comment hearts.
     if await _double_tap_reel(page):
         await asyncio.sleep(0.5)
-        if await _is_liked(page):
+        if await _is_post_liked(page):
             return ActionResult(True, "Liked current post (double-tap)")
-    raise ScriptedActionError("selector_not_found", "Like button not found on current view")
+    clicked, already = await _click_post_like(page)
+    if already:
+        return ActionResult(True, "Already liked", already_done=True)
+    if clicked:
+        await asyncio.sleep(0.45)
+        if await _is_post_liked(page):
+            return ActionResult(True, "Liked current post (action rail)")
+    raise ScriptedActionError("selector_not_found", "Post like button not found on current view")
 
 
 async def scripted_like(
@@ -226,14 +484,28 @@ async def scripted_like(
     settings: Settings | None = None,
 ) -> ActionResult:
     cfg = settings or get_settings()
-    timeout = cfg.scripted_action_timeout
+    page = await _ensure_page(browser)
+    try:
+        cur = canonicalize_ig_url(await page.get_url()) if hasattr(page, "get_url") else ""
+    except Exception:
+        cur = ""
+    target = canonicalize_ig_url(post_url) or post_url.split("?")[0].rstrip("/")
+    if cur and target and cur == target:
+        return await scripted_like_current(browser, settings=cfg)
     page = await _navigate(browser, post_url, settle=1.0)
-    if await _is_liked(page):
+    if await _is_post_liked(page):
         return ActionResult(True, "Already liked", already_done=True)
-    if not await _click_first(page, _LIKE_SELECTORS, timeout):
-        raise ScriptedActionError("selector_not_found", "Like button not found")
+    if "/reel/" in post_url and await _double_tap_reel(page):
+        await asyncio.sleep(0.5)
+        if await _is_post_liked(page):
+            return ActionResult(True, f"Liked {post_url} (double-tap)")
+    clicked, already = await _click_post_like(page)
+    if already:
+        return ActionResult(True, "Already liked", already_done=True)
+    if not clicked:
+        raise ScriptedActionError("selector_not_found", "Post like button not found")
     await asyncio.sleep(0.4)
-    if not await _is_liked(page):
+    if not await _is_post_liked(page):
         raise ScriptedActionError("verify_failed", "Like did not register")
     return ActionResult(True, f"Liked {post_url}")
 
