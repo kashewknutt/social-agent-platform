@@ -60,7 +60,18 @@ class Settings:
         default_factory=lambda: os.getenv("KIMI_BROWSER_MODEL", "kimi-k2.6")
     )
     kimi_request_timeout_s: float = field(
-        default_factory=lambda: float(os.getenv("KIMI_REQUEST_TIMEOUT_S", "45"))
+        default_factory=lambda: float(os.getenv("KIMI_REQUEST_TIMEOUT_S", "60"))
+    )
+    # Synthesis embeds the full filtered shortlist + multimodal notes and asks
+    # for a multi-section markdown report — a much heavier call than filter/
+    # draft scoring, so it gets its own, longer timeout.
+    kimi_synth_timeout_s: float = field(
+        default_factory=lambda: float(os.getenv("KIMI_SYNTH_TIMEOUT_S", "120"))
+    )
+    # Video/image analysis (multimodal + Analyzer) also needs more time than a
+    # plain text call — uploading + processing media isn't instant.
+    kimi_multimodal_timeout_s: float = field(
+        default_factory=lambda: float(os.getenv("KIMI_MULTIMODAL_TIMEOUT_S", "90"))
     )
     filter_batch_size: int = field(
         default_factory=lambda: int(os.getenv("FILTER_BATCH_SIZE", "6"))

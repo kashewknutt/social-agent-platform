@@ -14,7 +14,7 @@ from ig_agent.config import Settings, get_settings
 class KimiClient:
     """Thin wrapper around the OpenAI-compatible Moonshot API."""
 
-    def __init__(self, settings: Settings | None = None) -> None:
+    def __init__(self, settings: Settings | None = None, *, timeout: float | None = None) -> None:
         self.settings = settings or get_settings()
         if not self.settings.moonshot_api_key:
             raise ValueError(
@@ -24,9 +24,12 @@ class KimiClient:
             api_key=self.settings.moonshot_api_key,
             base_url=self.settings.kimi_base_url,
             # Hard cap so a slow/stuck Moonshot call can't hang scoring/drafting
-            # forever — callers fall back to offline logic on timeout.
-            timeout=self.settings.kimi_request_timeout_s,
-            max_retries=1,
+            # forever — callers fall back to offline logic on timeout. No SDK
+            # retry: a retry at the same timeout just doubles the wait before
+            # falling back when Moonshot is consistently slow, without much
+            # upside over a single, slightly longer attempt.
+            timeout=timeout if timeout is not None else self.settings.kimi_request_timeout_s,
+            max_retries=0,
         )
 
     def chat(

@@ -17,6 +17,11 @@ def _get_client(settings: Settings) -> OpenAI:
     return OpenAI(
         api_key=settings.moonshot_api_key,
         base_url=settings.kimi_base_url,
+        # Video/image analysis needs more time than a plain text call, but a
+        # stuck upload/processing call still shouldn't hang the pipeline for
+        # its default (very long) SDK timeout.
+        timeout=settings.kimi_multimodal_timeout_s,
+        max_retries=0,
     )
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,15 @@ from typing import Any
 from ig_agent.config import FILTERED_DIR, REPORTS_DIR, Settings, get_settings
 from ig_agent.filter import load_agency_context
 from ig_agent.llm import KimiClient
+
+logger = logging.getLogger("ig_agent.synthesize")
+
+# Synthesis only needs enough of each post to inspire the report — dumping
+# every field (media paths, raw booleans, etc.) for every kept post bloats
+# the prompt and slows generation for no benefit. Cap both the fields and
+# the post count.
+_SYNTH_MAX_POSTS = 10
+_SYNTH_POST_FIELDS = ("post_url", "username", "caption", "post_type", "relevance_score", "adaptable_hook")
 
 
 def _collect_filtered_posts(filtered_path: Path | None = None) -> list[dict[str, Any]]:
@@ -30,6 +40,27 @@ def _collect_filtered_posts(filtered_path: Path | None = None) -> list[dict[str,
     return posts
 
 
+def _compact_posts_for_synthesis(posts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    ranked = sorted(posts, key=lambda p: int(p.get("relevance_score") or 0), reverse=True)
+    compact = []
+    for p in ranked[:_SYNTH_MAX_POSTS]:
+        item = {k: p.get(k) for k in _SYNTH_POST_FIELDS if p.get(k) is not None}
+        if p.get("caption"):
+            item["caption"] = str(p["caption"])[:280]
+        compact.append(item)
+    return compact
+
+
+def _compact_notes_for_synthesis(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "post_url": n.get("post_url"),
+            "analysis": str(n.get("analysis") or "")[:280],
+        }
+        for n in notes[:_SYNTH_MAX_POSTS]
+    ]
+
+
 def _build_synthesis_prompt(
     agency_context: dict[str, Any],
     posts: list[dict[str, Any]],
@@ -37,8 +68,10 @@ def _build_synthesis_prompt(
 ) -> list[dict[str, str]]:
     notes_block = ""
     if multimodal_notes:
-        notes_block = f"\n\nMultimodal analysis notes:\n{json.dumps(multimodal_notes, indent=2)}"
+        compact_notes = _compact_notes_for_synthesis(multimodal_notes)
+        notes_block = f"\n\nMultimodal analysis notes:\n{json.dumps(compact_notes, indent=2)}"
 
+    posts = _compact_posts_for_synthesis(posts)
     brand = agency_context.get("brand_name") or "the agency"
     site = agency_context.get("website") or ""
     region = agency_context.get("region") or ""
@@ -92,11 +125,19 @@ def synthesize_dashboard(
     if offline or not cfg.moonshot_api_key:
         body = _synthesize_offline(ctx, posts, multimodal_notes)
     else:
-        client = KimiClient(cfg)
-        body = client.chat(
-            _build_synthesis_prompt(ctx, posts, multimodal_notes),
-            model=cfg.kimi_synth_model,
-        )
+        try:
+            client = KimiClient(cfg, timeout=cfg.kimi_synth_timeout_s)
+            body = client.chat(
+                _build_synthesis_prompt(ctx, posts, multimodal_notes),
+                model=cfg.kimi_synth_model,
+            )
+        except Exception as exc:
+            # The dashboard is a nice-to-have artifact — a slow/failed Kimi
+            # call here must never abort the whole run (propose/engage still
+            # need to happen). Fall back to the offline template instead.
+            logger.warning("Synthesis Kimi call failed (%s) — using offline template", exc)
+            body = _synthesize_offline(ctx, posts, multimodal_notes)
+            header += "_(Kimi API was unavailable/slow — using offline template for this section.)_\n\n"
 
     out_path.write_text(header + body, encoding="utf-8")
     return out_path
