@@ -104,6 +104,10 @@ class Settings:
     relevance_threshold: int = field(
         default_factory=lambda: int(os.getenv("RELEVANCE_THRESHOLD", "35"))
     )
+    # Captions longer than this are treated as spam/AI listicle bait.
+    spam_max_caption_len: int = field(
+        default_factory=lambda: int(os.getenv("SPAM_MAX_CAPTION_LEN", "900"))
+    )
 
     # Engagement daily caps
     max_likes_per_day: int = field(

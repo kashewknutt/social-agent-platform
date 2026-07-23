@@ -13,6 +13,7 @@ from ig_agent.config import AGENCY_CONTEXT_PATH, FILTERED_DIR, RAW_DIR, Settings
 from ig_agent.llm import KimiClient
 from ig_agent.offline import score_all_posts_offline, score_posts_offline
 from ig_agent.posts import normalize_posts
+from ig_agent.spam_filter import is_spam_post, mark_spam_rejected
 
 logger = logging.getLogger("ig_agent.filter")
 
@@ -56,6 +57,10 @@ def _build_filter_prompt(agency_context: dict[str, Any], posts: list[dict[str, A
         "Score EVERY Instagram post for relevance to the agency's content strategy. "
         "Be generous with founder-journey, business-struggle, MVP, startup, and "
         "build-in-public angles — these are core targets even when not explicitly about tech. "
+        "HARD REJECT (score 0, never keep): spam, clickbait, side-hustle bait, MLM/affiliate "
+        "schemes, 'read caption' / 'if you're a student' / 'earn side income' / 'follow these "
+        "steps' / numbered how-to-earn listicles, overly long AI-generated caption walls, "
+        "and 'DM me' / 'comment yes' engagement bait — regardless of likes or views. "
         "Return ONLY JSON: "
         '{"results": [{"post_index": 0, "relevance_score": 85, "reason": "...", '
         '"adaptable_hook": "..."}]}. '
@@ -149,24 +154,58 @@ def score_all_posts(
     if not posts:
         return []
 
-    if offline or not cfg.moonshot_api_key:
-        scored = score_all_posts_offline(posts, ctx, cfg.relevance_threshold)
+    # Hard-reject spam/clickbait before spending Kimi calls on them.
+    clean_posts: list[dict[str, Any]] = []
+    clean_indices: list[int] = []
+    spam_scored: list[dict[str, Any]] = []
+    for idx, post in enumerate(posts):
+        is_spam, spam_reason = is_spam_post(post, max_caption_len=cfg.spam_max_caption_len)
+        if is_spam:
+            spam_scored.append(mark_spam_rejected(post, idx, spam_reason))
+        else:
+            clean_posts.append(post)
+            clean_indices.append(idx)
+
+    if spam_scored:
+        logger.info(
+            "Spam filter rejected %s/%s post(s) before scoring",
+            len(spam_scored),
+            total,
+        )
+
+    if not clean_posts:
         if on_progress:
-            on_progress(scored, total)
-        return scored
+            on_progress(spam_scored, total)
+        return spam_scored
+
+    if offline or not cfg.moonshot_api_key:
+        scored = score_all_posts_offline(clean_posts, ctx, cfg.relevance_threshold)
+        # Map batch-local indices back to original post indices.
+        for local_idx, item in enumerate(scored):
+            item["post_index"] = clean_indices[local_idx]
+        all_scored = spam_scored + scored
+        all_scored.sort(key=lambda p: int(p.get("post_index", 0)))
+        if on_progress:
+            on_progress(all_scored, total)
+        return all_scored
 
     client = KimiClient(cfg)
     batch_size = max(1, cfg.filter_batch_size)
-    all_scored: list[dict[str, Any]] = []
-    for start in range(0, total, batch_size):
-        batch = posts[start : start + batch_size]
+    scored_clean: list[dict[str, Any]] = []
+    for start in range(0, len(clean_posts), batch_size):
+        batch = clean_posts[start : start + batch_size]
+        batch_indices = clean_indices[start : start + batch_size]
         # Re-index each batch to 0..len(batch)-1 for the prompt, then map back.
         batch_scored = _score_batch(batch, ctx, cfg, client, index_offset=start)
-        for offset, item in enumerate(batch_scored):
-            item["post_index"] = start + offset
-        all_scored.extend(batch_scored)
+        for local_idx, item in enumerate(batch_scored):
+            item["post_index"] = batch_indices[local_idx]
+        scored_clean.extend(batch_scored)
+        merged = spam_scored + scored_clean
+        merged.sort(key=lambda p: int(p.get("post_index", 0)))
         if on_progress:
-            on_progress(list(all_scored), total)
+            on_progress(merged, total)
+    all_scored = spam_scored + scored_clean
+    all_scored.sort(key=lambda p: int(p.get("post_index", 0)))
     return all_scored
 
 
