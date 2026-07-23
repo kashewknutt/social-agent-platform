@@ -64,7 +64,7 @@ def _merge_posts_into_filtered_file(
         filtered_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 DEFAULT_CONSTRAINTS = (
-    "While browsing research, like and follow relevant creator posts live. "
+    "While browsing research, like relevant creator posts live. "
     "Comments/DMs/posts still require human approval (HITL)."
 )
 

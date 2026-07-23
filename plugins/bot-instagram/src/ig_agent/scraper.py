@@ -329,26 +329,43 @@ async def engage_current_post(
     *,
     settings: Settings | None = None,
 ) -> dict[str, Any]:
-    """Like the post/reel and follow the poster on the current screen (not comment rows)."""
+    """Like the post/reel (and optionally follow) on the current screen or post URL."""
     from ig_agent.safety import can_perform
     from ig_agent.scripted_actions import (
         ScriptedActionError,
         scripted_follow_current,
+        scripted_like,
         scripted_like_current,
     )
 
     cfg = settings or get_settings()
     out = dict(post)
+    post_url = out.get("post_url")
     if can_perform("like", cfg):
         try:
-            res = await scripted_like_current(browser, settings=cfg)
+            # Reels scroll ingest is already on the reel — don't navigate away.
+            # Post/hashtag mode opens each permalink separately — use scripted_like
+            # so navigation + verify run (static /p/ pages often miss with current-only).
+            on_reels_feed = False
+            try:
+                page = await _ensure_page(browser)
+                cur_url = await page.get_url() if hasattr(page, "get_url") else ""
+                on_reels_feed = "/reels" in str(cur_url or "").lower()
+            except Exception:
+                pass
+            if post_url and not on_reels_feed:
+                res = await scripted_like(browser, str(post_url), settings=cfg)
+            else:
+                res = await scripted_like_current(browser, settings=cfg)
             out["liked"] = res.ok
         except ScriptedActionError as exc:
-            logger.debug("engage like failed: %s", exc)
+            logger.warning("engage like failed for %s: %s", post_url or "current", exc)
             out["liked"] = False
         except Exception as exc:
-            logger.debug("engage like failed: %s", exc)
+            logger.warning("engage like failed for %s: %s", post_url or "current", exc)
             out["liked"] = False
+    else:
+        out.setdefault("liked", False)
     if can_perform("follow", cfg):
         try:
             res = await scripted_follow_current(browser, settings=cfg)
@@ -359,6 +376,8 @@ async def engage_current_post(
         except Exception as exc:
             logger.debug("engage follow skipped: %s", exc)
             out["followed"] = False
+    else:
+        out.setdefault("followed", False)
     username = out.get("username")
     if username and not out.get("profile_url"):
         out["profile_url"] = f"https://www.instagram.com/{username}/"
