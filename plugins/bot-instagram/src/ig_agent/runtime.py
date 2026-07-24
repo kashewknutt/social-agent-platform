@@ -68,6 +68,97 @@ DEFAULT_CONSTRAINTS = (
     "Follows require human approval (HITL); comment/DM/post also HITL."
 )
 
+# People-first defaults applied when an older placeholder direction is detected.
+PEOPLE_FIRST_HASHTAGS = [
+    "#founderstory",
+    "#founderjourney",
+    "#founderadvice",
+    "#startupadvice",
+    "#startuptips",
+    "#buildinpublic",
+    "#saasfounder",
+    "#b2bsaas",
+    "#productfounder",
+    "#mvp",
+    "#mvplaunch",
+    "#startupindia",
+    "#indianfounders",
+    "#founderpodcast",
+    "#businesspodcast",
+]
+PEOPLE_FIRST_PHRASES = [
+    "founder advice",
+    "MVP lessons",
+    "startup mistakes",
+    "product validation",
+    "non-technical founder",
+    "founder interview",
+    "startup podcast",
+    "SaaS founder story",
+    "technical cofounder advice",
+    "MVP launch lessons",
+]
+PEOPLE_FIRST_FORMATS = [
+    "talking_head",
+    "microphone",
+    "podcast_interview",
+    "spoken_explanation",
+    "demonstration",
+    "q_and_a",
+    "direct_instruction",
+]
+PEOPLE_FIRST_GOALS = (
+    "Collect founder-led people content (talking-head, mic/podcast, instructional) and "
+    "turn it into audience-participation ideas that build Valnee Solutions trust: founder "
+    "authority, proof of execution, transparent education, customer-risk reduction, and "
+    "repeatable conversations with non-technical founders. Prefer human-speaking reels over "
+    "text slides, coding memes, or faceless B-roll."
+)
+PEOPLE_FIRST_CONSTRAINTS = (
+    "Discover via niche hashtags, search phrases, and approved creator profiles before generic "
+    "Reels. Do not auto-follow; propose evidence-backed creator follows for human approval. "
+    "Like only after topical + people-first format gates pass. Comments/DMs/posts require HITL. "
+    "Always brand as Valnee Solutions / valnee.com. Avoid comment-KEYWORD-for-DM bait."
+)
+
+
+def _normalize_tag(tag: str) -> str:
+    return (tag or "").strip().lower().lstrip("#")
+
+
+def _is_legacy_direction(ctx: dict[str, Any]) -> bool:
+    tags = [_normalize_tag(t) for t in (ctx.get("competitor_hashtags") or []) if str(t).strip()]
+    if tags == ["trending"]:
+        return True
+    goals = str(ctx.get("goals") or "")
+    if "Find adaptable content angles" in goals and "people-first" not in goals.lower():
+        return True
+    constraints = str(ctx.get("constraints") or "")
+    if "like and follow relevant creator posts live" in constraints.lower():
+        return True
+    if not ctx.get("discovery_phrases") and not ctx.get("preferred_formats"):
+        if tags == ["trending"] or (len(tags) <= 1 and "trending" in tags):
+            return True
+    return False
+
+
+def migrate_legacy_direction(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Upgrade placeholder direction configs to people-first defaults."""
+    if not _is_legacy_direction(ctx):
+        return ctx
+    out = dict(ctx)
+    out["competitor_hashtags"] = list(PEOPLE_FIRST_HASHTAGS)
+    out.setdefault("discovery_phrases", list(PEOPLE_FIRST_PHRASES))
+    if not out.get("discovery_phrases"):
+        out["discovery_phrases"] = list(PEOPLE_FIRST_PHRASES)
+    out.setdefault("preferred_formats", list(PEOPLE_FIRST_FORMATS))
+    if not out.get("preferred_formats"):
+        out["preferred_formats"] = list(PEOPLE_FIRST_FORMATS)
+    out["research_mode"] = str(out.get("research_mode") or "people_first")
+    out["goals"] = PEOPLE_FIRST_GOALS
+    out["constraints"] = PEOPLE_FIRST_CONSTRAINTS
+    return out
+
 
 def _direction_from_context(ctx: dict[str, Any]) -> Direction:
     return Direction(
@@ -91,7 +182,12 @@ def _direction_from_context(ctx: dict[str, Any]) -> Direction:
 def load_direction() -> Direction:
     if not AGENCY_CONTEXT_PATH.exists():
         return Direction(constraints=DEFAULT_CONSTRAINTS)
-    return _direction_from_context(json.loads(AGENCY_CONTEXT_PATH.read_text(encoding="utf-8")))
+    raw = json.loads(AGENCY_CONTEXT_PATH.read_text(encoding="utf-8"))
+    migrated = migrate_legacy_direction(raw)
+    if migrated != raw:
+        save_direction(_direction_from_context(migrated))
+        logger.info("Migrated legacy agency_context.json to people-first defaults")
+    return _direction_from_context(migrated)
 
 
 def save_direction(direction: Direction) -> None:

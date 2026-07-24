@@ -97,7 +97,22 @@ def test_apply_format_gate_with_topical_kept():
     assert "https://www.instagram.com/reel/b/" not in kept_urls
 
 
-def test_agency_context_people_first_defaults():
+def test_legacy_direction_migration():
+    from ig_agent.runtime import migrate_legacy_direction
+
+    legacy = {
+        "competitor_hashtags": ["#trending"],
+        "goals": "Find adaptable content angles that position Valnee Solutions...",
+        "constraints": "While browsing research, like and follow relevant creator posts live.",
+    }
+    migrated = migrate_legacy_direction(legacy)
+    assert "#trending" not in migrated["competitor_hashtags"]
+    assert "#founderstory" in migrated["competitor_hashtags"]
+    assert migrated["discovery_phrases"]
+    assert migrated["preferred_formats"]
+    assert migrated["research_mode"] == "people_first"
+    assert "people content" in migrated["goals"].lower()
+    assert "auto-follow" in migrated["constraints"].lower()
     ctx = load_agency_context()
     assert ctx.get("research_mode") == "people_first"
     assert "#trending" not in (ctx.get("competitor_hashtags") or [])
