@@ -24,6 +24,11 @@ plugins/bot-instagram/data/browser-profile/
 plugins/bot-instagram/data/chrome-profile/
 plugins/bot-instagram/data/usage_log.json
 plugins/bot-instagram/data/interactions.db
+plugins/bot-instagram/data/ig_agent.db
+plugins/bot-instagram/data/video_analyses.db
+plugins/bot-instagram/data/engage_circuit.json
+plugins/bot-instagram/data/hashtag_search_history.jsonl
+plugins/bot-instagram/data/scripted_fallback_log.json
 plugins/bot-instagram/data/runs/
 plugins/bot-instagram/data/raw/*.json
 !plugins/bot-instagram/data/raw/sample_scraped.json
@@ -43,6 +48,12 @@ agent-sdk/.pytest_cache/
 **/data/chrome-profile/
 **/data/usage_log.json
 **/data/interactions.db
+**/data/*.db
+!**/data/samples/**
+**/data/*.jsonl
+**/data/engage_circuit.json
+**/data/scripted_fallback_log.json
+orchestrator/data/
 **/data/runs/
 **/data/raw/*.json
 !**/data/raw/sample_scraped.json
