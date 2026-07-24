@@ -1,26 +1,28 @@
 {
   "timestamp": "2026-07-18T00:00:00",
-  "post_count": 4,
+  "post_count": 5,
   "posts": [
     {
       "post_url": "https://www.instagram.com/reel/sample1/",
       "username": "saasarchitect",
       "profile_url": "https://www.instagram.com/saasarchitect/",
-      "caption": "Building a SaaS architecture that scales — lessons from shipping B2B apps #saas #softwaredevelopment",
+      "caption": "In this reel I explain the SaaS architecture lesson I learned shipping B2B apps for non-technical founders #saas #founderadvice #mvp",
       "likes": 1200,
       "views": 18000,
       "comments_count": 45,
-      "post_type": "reel"
+      "post_type": "reel",
+      "video_description": "Talking-head founder speaks to camera with a microphone while walking through an MVP architecture whiteboard."
     },
     {
       "post_url": "https://www.instagram.com/reel/sample2/",
       "username": "devworkflow",
       "profile_url": "https://www.instagram.com/devworkflow/",
-      "caption": "Developer workflow humor: when the staging env is production #codinglife #webdevelopment",
+      "caption": "AAAaaaHHHHhhhhh developer workflow humor: when the staging env is production #codinglife #codememes #meme",
       "likes": 3400,
       "views": 52000,
       "comments_count": 120,
-      "post_type": "reel"
+      "post_type": "reel",
+      "video_description": "Text-on-screen coding meme with a faceless desk setup and no spoken instruction."
     },
     {
       "post_url": "https://www.instagram.com/p/sample3/",
@@ -36,11 +38,23 @@
       "post_url": "https://www.instagram.com/reel/sample4/",
       "username": "startuphire",
       "profile_url": "https://www.instagram.com/startuphire/",
-      "caption": "Tech startup pitfalls when hiring your first engineering team #techstartup #saas",
+      "caption": "Founder interview: startup podcast advice on hiring your first engineering team and validating your MVP #techstartup #founderpodcast #startupadvice",
       "likes": 800,
       "views": 11000,
       "comments_count": 33,
-      "post_type": "reel"
+      "post_type": "reel",
+      "video_description": "Podcast-style interview with two founders speaking into microphones about MVP hiring mistakes."
+    },
+    {
+      "post_url": "https://www.instagram.com/reel/sample5/",
+      "username": "deskflexes",
+      "profile_url": "https://www.instagram.com/deskflexes/",
+      "caption": "POV: You're on a Generational Lock In #developer #coding #github",
+      "likes": 41000,
+      "views": 90000,
+      "comments_count": 160,
+      "post_type": "reel",
+      "video_description": "Faceless cinematic desk setup with a GitHub contributions graph and no person speaking."
     }
   ]
 }

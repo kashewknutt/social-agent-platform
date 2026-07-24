@@ -221,6 +221,8 @@ async def _navigate_and_get_page(browser: Any, url: str) -> Any:
 
 
 def _normalize_posts(raw: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    from ig_agent.format_gate import enrich_post_identity
+
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
     for item in raw:
@@ -230,7 +232,7 @@ def _normalize_posts(raw: list[dict[str, Any]], limit: int) -> list[dict[str, An
         if url in seen:
             continue
         seen.add(url)
-        out.append(
+        row = enrich_post_identity(
             {
                 "post_url": url,
                 "caption": (item.get("caption") or "")[:500],
@@ -244,6 +246,7 @@ def _normalize_posts(raw: list[dict[str, Any]], limit: int) -> list[dict[str, An
                 "followed": bool(item.get("followed")),
             }
         )
+        out.append(row)
         if len(out) >= limit:
             break
     return out
@@ -323,13 +326,72 @@ async def scrape_post_detail(
     }
 
 
+async def scrape_phrase_candidates(
+    browser: Any,
+    phrase: str,
+    limit: int,
+    *,
+    settings: Settings | None = None,
+) -> list[dict[str, Any]]:
+    """Search Instagram for an intent phrase and harvest visible post/reel URLs."""
+    from urllib.parse import quote
+
+    q = (phrase or "").strip()
+    if not q:
+        raise ScrapeError("no_candidates", "Empty search phrase")
+    # Keyword search UI; falls back gracefully if IG redirects.
+    url = f"https://www.instagram.com/explore/search/keyword/?q={quote(q)}"
+    page = await _navigate_and_get_page(browser, url)
+    await _scroll_feed(page, passes=3)
+    posts = await harvest_posts_from_page(page)
+    posts = _normalize_posts([p for p in posts], limit)
+    if not posts:
+        # Fallback: treat phrase as a hashtag-like slug.
+        tag = re.sub(r"[^a-zA-Z0-9_]", "", q.replace(" ", ""))
+        if tag:
+            return await scrape_hashtag_candidates(browser, tag, limit, settings=settings)
+        raise ScrapeError("no_candidates", f"Phrase search '{q}' returned 0 post URLs")
+    from ig_agent.hashtag_rotation import record_phrase_search
+
+    record_phrase_search(q, source="phrase_search")
+    return posts
+
+
+async def scrape_profile_candidates(
+    browser: Any,
+    profile: str,
+    limit: int,
+    *,
+    settings: Settings | None = None,
+) -> list[dict[str, Any]]:
+    """Harvest recent posts/reels from a creator profile grid."""
+    handle = (profile or "").strip().lstrip("@").split("/")[0]
+    handle = re.sub(r"[^a-zA-Z0-9._]", "", handle)
+    if not handle:
+        raise ScrapeError("no_candidates", "Empty profile handle")
+    url = f"https://www.instagram.com/{handle}/"
+    page = await _navigate_and_get_page(browser, url)
+    await _scroll_feed(page, passes=3)
+    posts = await harvest_posts_from_page(page)
+    posts = _normalize_posts([p for p in posts], limit)
+    for p in posts:
+        if not p.get("username"):
+            p["username"] = handle
+        if not p.get("profile_url"):
+            p["profile_url"] = url
+    if not posts:
+        raise ScrapeError("no_candidates", f"Profile @{handle} returned 0 post URLs")
+    return posts
+
+
 async def engage_current_post(
     browser: Any,
     post: dict[str, Any],
     *,
     settings: Settings | None = None,
+    allow_follow: bool = False,
 ) -> dict[str, Any]:
-    """Like the post/reel (and optionally follow) on the current screen or post URL."""
+    """Like the post/reel on the current screen or post URL. Follows are opt-in and rare."""
     from ig_agent.safety import can_perform
     from ig_agent.scripted_actions import (
         ScriptedActionError,
@@ -366,7 +428,8 @@ async def engage_current_post(
             out["liked"] = False
     else:
         out.setdefault("liked", False)
-    if can_perform("follow", cfg):
+    # Follows require explicit allow_follow AND daily cap — preferred path is HITL propose.
+    if allow_follow and can_perform("follow", cfg):
         try:
             res = await scripted_follow_current(browser, settings=cfg)
             out["followed"] = res.ok
@@ -465,6 +528,8 @@ async def scrape_research_batch(
     browser: Any,
     *,
     hashtags: list[str] | None = None,
+    phrases: list[str] | None = None,
+    profiles: list[str] | None = None,
     limit: int = 5,
     engage_live: bool = True,
     settings: Settings | None = None,
@@ -472,50 +537,119 @@ async def scrape_research_batch(
     controller: Any | None = None,
     run_id: str | None = None,
     should_stop: Any | None = None,
-    content_mode: str = "reels",
+    content_mode: str = "people_first",
 ) -> list[dict[str, Any]]:
-    """Scrape candidates + enrich detail; optionally like/follow via scripted actions.
+    """Scrape candidates + enrich detail; optionally like via scripted actions.
 
-    content_mode="reels" (default): scroll Instagram's own algorithmic Reels
-    feed first — fastest path for live like/follow, hashtags only as fallback.
-    content_mode="posts": search the configured hashtag(s) first so real
-    posts (images + reels) from YOUR niche are used, not the generic Reels
-    feed; the Reels feed is only used as a last-resort fallback.
+    content_mode="people_first" (default): niche hashtags → search phrases →
+    creator profiles → Explore, with Reels only as last-resort fallback.
+    content_mode="posts": hashtag-first niche posts.
+    content_mode="reels": scroll Instagram's algorithmic Reels feed first.
     """
     cfg = settings or get_settings()
     tags = hashtags or []
-    mode = (content_mode or "reels").strip().lower()
+    search_phrases = phrases or []
+    creator_profiles = profiles or []
+    mode = (content_mode or "people_first").strip().lower()
+    if mode in {"people", "people-first", "peoplefirst"}:
+        mode = "people_first"
     candidates: list[dict[str, Any]] = []
     errors: list[str] = []
 
-    if mode == "posts":
-        # Hashtag-first: real posts from the configured niche tags, not
-        # Instagram's generic algorithmic Reels feed.
-        if tags:
-            tag = tags[0]
+    async def _from_hashtag() -> list[dict[str, Any]]:
+        if not tags:
+            return []
+        tag = tags[0]
+        try:
+            if on_progress:
+                from ig_agent.hashtag_rotation import normalize_hashtag
+
+                on_progress(f"Hashtag search #{normalize_hashtag(tag)}…")
+            batch = await scrape_hashtag_candidates(browser, tag, limit, settings=cfg)
+            if on_progress and batch:
+                on_progress(f"Hashtag #{tag.lstrip('#')} → {len(batch)} post URL(s)")
+            return batch
+        except ScrapeError as exc:
+            errors.append(f"#{tag.lstrip('#')}: {exc.detail}")
+            logger.warning("Hashtag scrape failed for %s: %s", tag, exc)
+            return []
+
+    async def _from_phrases() -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for phrase in search_phrases[:2]:
+            if len(out) >= limit:
+                break
             try:
                 if on_progress:
-                    from ig_agent.hashtag_rotation import normalize_hashtag
-
-                    on_progress(f"Post mode: hashtag search #{normalize_hashtag(tag)}…")
-                batch = await scrape_hashtag_candidates(browser, tag, limit, settings=cfg)
-                candidates.extend(batch)
+                    on_progress(f"Phrase search: {phrase}…")
+                batch = await scrape_phrase_candidates(browser, phrase, limit, settings=cfg)
+                out.extend(batch)
                 if on_progress and batch:
-                    on_progress(f"Hashtag #{tag.lstrip('#')} → {len(batch)} post URL(s)")
+                    on_progress(f"Phrase '{phrase}' → {len(batch)} post URL(s)")
             except ScrapeError as exc:
-                msg = f"#{tag.lstrip('#')}: {exc.detail}"
-                errors.append(msg)
-                logger.warning("Hashtag scrape failed for %s: %s", tag, exc)
+                errors.append(f"phrase:{phrase}: {exc.detail}")
+                logger.warning("Phrase scrape failed for %s: %s", phrase, exc)
+        return out
 
+    async def _from_profiles() -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for profile in creator_profiles[:3]:
+            if len(out) >= limit:
+                break
+            try:
+                if on_progress:
+                    on_progress(f"Profile harvest @{str(profile).lstrip('@')}…")
+                batch = await scrape_profile_candidates(browser, profile, limit, settings=cfg)
+                out.extend(batch)
+            except ScrapeError as exc:
+                errors.append(f"profile:{profile}: {exc.detail}")
+                logger.warning("Profile scrape failed for %s: %s", profile, exc)
+        return out
+
+    if mode == "people_first":
+        # Niche-first: never open generic Reels until every seed source fails.
+        for batch in (
+            await _from_hashtag(),
+            await _from_phrases(),
+            await _from_profiles(),
+        ):
+            candidates.extend(batch)
+            if len(candidates) >= limit:
+                break
+        if not candidates:
+            try:
+                if on_progress:
+                    on_progress("People-first fallback: Explore grid…")
+                candidates = await scrape_explore_candidates(browser, limit, settings=cfg)
+            except ScrapeError as exc:
+                errors.append(f"explore: {exc.detail}")
+                logger.warning("Explore scrape failed in people_first: %s", exc)
+        if not candidates:
+            try:
+                if on_progress:
+                    on_progress("People-first last resort: Reels feed…")
+                return await scripted_reels_ingest(
+                    browser,
+                    limit=limit,
+                    engage_live=False,  # collect only — engage after format gate
+                    settings=cfg,
+                    on_progress=on_progress,
+                    controller=controller,
+                    run_id=run_id,
+                    should_stop=should_stop,
+                )
+            except ScrapeError as exc:
+                errors.append(f"reels: {exc.detail}")
+                logger.warning("Reels fallback failed in people_first: %s", exc)
+    elif mode == "posts":
+        candidates.extend(await _from_hashtag())
         if not candidates:
             try:
                 candidates = await scrape_explore_candidates(browser, limit, settings=cfg)
             except ScrapeError as exc:
                 errors.append(f"explore: {exc.detail}")
                 logger.warning("Explore scrape failed in post mode: %s", exc)
-
         if not candidates and engage_live:
-            # Last resort so a post-mode run doesn't just fail outright.
             try:
                 return await scripted_reels_ingest(
                     browser,
@@ -531,7 +665,7 @@ async def scrape_research_batch(
                 errors.append(f"reels: {exc.detail}")
                 logger.warning("Reels fallback also failed in post mode: %s", exc)
     else:
-        # Reels scroll ingest is best for live like/follow — avoids opening post pages with comment threads.
+        # Legacy reels mode
         if engage_live:
             try:
                 return await scripted_reels_ingest(
@@ -548,22 +682,7 @@ async def scrape_research_batch(
                 logger.warning("Reels ingest failed, trying hashtag/grid: %s", exc)
                 errors.append(f"reels: {exc.detail}")
 
-        # Fresh hashtag first (rotated in runtime) — avoid repeating recent tags.
-        if tags:
-            tag = tags[0]
-            try:
-                if on_progress:
-                    from ig_agent.hashtag_rotation import normalize_hashtag
-
-                    on_progress(f"Hashtag search #{normalize_hashtag(tag)}…")
-                batch = await scrape_hashtag_candidates(browser, tag, limit, settings=cfg)
-                candidates.extend(batch)
-                if on_progress and batch:
-                    on_progress(f"Hashtag #{tag.lstrip('#')} → {len(batch)} post URL(s)")
-            except ScrapeError as exc:
-                msg = f"#{tag.lstrip('#')}: {exc.detail}"
-                errors.append(msg)
-                logger.warning("Hashtag scrape failed for %s: %s", tag, exc)
+        candidates.extend(await _from_hashtag())
 
         if not candidates and engage_live:
             try:
@@ -604,6 +723,9 @@ async def scrape_research_batch(
         if len(unique) >= limit:
             break
 
+    # people_first: collect + enrich only. Engage (likes) after topical+format gates.
+    do_live_engage = engage_live and mode != "people_first"
+
     enriched: list[dict[str, Any]] = []
     for post in unique:
         url = str(post.get("post_url") or "")
@@ -614,8 +736,11 @@ async def scrape_research_batch(
             merged = {**post, **{k: v for k, v in detail.items() if v}}
         except ScrapeError:
             merged = dict(post)
-        if engage_live:
-            merged = await engage_current_post(browser, merged, settings=cfg)
+        from ig_agent.format_gate import enrich_post_identity
+
+        merged = enrich_post_identity(merged)
+        if do_live_engage:
+            merged = await engage_current_post(browser, merged, settings=cfg, allow_follow=False)
         else:
             merged.setdefault("liked", False)
             merged.setdefault("followed", False)

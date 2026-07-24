@@ -17,9 +17,45 @@
   ],
   "brand_voice": "Direct, founder-friendly, trustworthy, no-hype. Emphasize reliability, fixed deadlines, and 100% code ownership. Speak to non-technical founders who need a partner that delivers.",
   "competitor_hashtags": [
-    "#trending"
+    "#founderstory",
+    "#founderjourney",
+    "#founderadvice",
+    "#startupadvice",
+    "#startuptips",
+    "#buildinpublic",
+    "#saasfounder",
+    "#b2bsaas",
+    "#productfounder",
+    "#mvp",
+    "#mvplaunch",
+    "#startupindia",
+    "#indianfounders",
+    "#founderpodcast",
+    "#businesspodcast"
   ],
   "competitor_profiles": [],
-  "goals": "Find adaptable content angles that position Valnee Solutions (valnee.com) as the reliable MVP partner for founders \u2014 fixed price, guaranteed launch date, full code ownership.",
-  "constraints": "While browsing research, like and follow relevant creator posts live. Comments/DMs/posts still require human approval (HITL). Always brand as Valnee Solutions / valnee.com."
+  "discovery_phrases": [
+    "founder advice",
+    "MVP lessons",
+    "startup mistakes",
+    "product validation",
+    "non-technical founder",
+    "founder interview",
+    "startup podcast",
+    "SaaS founder story",
+    "technical cofounder advice",
+    "MVP launch lessons"
+  ],
+  "preferred_formats": [
+    "talking_head",
+    "microphone",
+    "podcast_interview",
+    "spoken_explanation",
+    "demonstration",
+    "q_and_a",
+    "direct_instruction"
+  ],
+  "research_mode": "people_first",
+  "goals": "Collect founder-led people content (talking-head, mic/podcast, instructional) and turn it into audience-participation ideas that build Valnee Solutions trust: founder authority, proof of execution, transparent education, customer-risk reduction, and repeatable conversations with non-technical founders. Prefer human-speaking reels over text slides, coding memes, or faceless B-roll.",
+  "constraints": "Discover via niche hashtags, search phrases, and approved creator profiles before generic Reels. Do not auto-follow; propose evidence-backed creator follows for human approval. Like only after topical + people-first format gates pass. Comments/DMs/posts require HITL. Always brand as Valnee Solutions / valnee.com. Avoid comment-KEYWORD-for-DM bait."
 }

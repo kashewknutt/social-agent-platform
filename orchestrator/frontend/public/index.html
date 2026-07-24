@@ -336,7 +336,7 @@
         offline: false,
         multimodal: true,
         engage: true,
-        contentMode: "reels",
+        contentMode: "people_first",
         interactions: [],
         ixDrafts: {},
         analyzer: { items: [] },
@@ -786,7 +786,7 @@
           offline: Boolean(state.offline),
           multimodal: Boolean(state.multimodal),
           engage: Boolean(state.engage),
-          content_mode: state.contentMode === "posts" ? "posts" : "reels",
+          content_mode: state.contentMode || "people_first",
         };
       }
 
@@ -840,6 +840,10 @@
               constraints: String(fd.get("constraints") ?? state.direction.constraints ?? ""),
               brand_voice: String(fd.get("brand_voice") ?? state.direction.brand_voice ?? ""),
               competitor_hashtags: String(fd.get("hashtags") || "").split("\n").map((s) => s.trim()).filter(Boolean),
+              discovery_phrases: String(fd.get("phrases") || "").split("\n").map((s) => s.trim()).filter(Boolean),
+              competitor_profiles: String(fd.get("profiles") || "").split("\n").map((s) => s.trim()).filter(Boolean),
+              preferred_formats: String(fd.get("formats") || "").split("\n").map((s) => s.trim()).filter(Boolean),
+              research_mode: String(fd.get("research_mode") || state.direction.research_mode || "people_first"),
               content_pillars: String(fd.get("pillars") || "").split("\n").map((s) => s.trim()).filter(Boolean),
             };
           }
@@ -1288,12 +1292,13 @@
               ${bot.id === "instagram" ? `
               <label class="content-mode-label">Source for this run:
                 <select id="opt-content-mode">
-                  <option value="reels" ${state.contentMode !== "posts" ? "selected" : ""}>Reels (scroll IG's Reels feed)</option>
+                  <option value="people_first" ${state.contentMode !== "posts" && state.contentMode !== "reels" ? "selected" : ""}>People-first (hashtags / phrases / profiles)</option>
                   <option value="posts" ${state.contentMode === "posts" ? "selected" : ""}>Posts (search my hashtags)</option>
+                  <option value="reels" ${state.contentMode === "reels" ? "selected" : ""}>Reels feed (legacy)</option>
                 </select>
               </label>` : ""}
             </div>
-            <div class="banner info">Live research opens Chromium. Log into Instagram if asked — session is saved. Media analysis runs only on filtered top posts.${bot.id === "instagram" ? " \"Posts\" mode searches your configured hashtags for real posts/reels from your niche instead of IG's generic Reels feed." : ""}</div>
+            <div class="banner info">Live research opens Chromium. Log into Instagram if asked — session is saved. Media analysis runs only on filtered top posts.${bot.id === "instagram" ? " People-first mode searches niche hashtags, phrases, and profiles for founder-led talking-head content before falling back to Explore/Reels." : ""}</div>
 
             <div id="progress-mount"></div>
             <div id="steps-mount"></div>
@@ -1321,6 +1326,16 @@
                     <div class="field"><label>Region</label><input name="region" value="${esc(dir.region || "")}" placeholder="e.g. India, US, Europe" /></div>
                     <div class="field"><label>Goals</label><textarea name="goals">${esc(dir.goals || "")}</textarea></div>
                     <div class="field"><label>Hashtags (one per line)</label><textarea name="hashtags">${esc((dir.competitor_hashtags || []).join("\n"))}</textarea></div>
+                    <div class="field"><label>Search phrases (one per line)</label><textarea name="phrases">${esc((dir.discovery_phrases || []).join("\n"))}</textarea></div>
+                    <div class="field"><label>Creator profiles (one per line)</label><textarea name="profiles">${esc((dir.competitor_profiles || []).join("\n"))}</textarea></div>
+                    <div class="field"><label>Preferred formats (one per line)</label><textarea name="formats">${esc((dir.preferred_formats || []).join("\n"))}</textarea></div>
+                    <div class="field"><label>Research mode</label>
+                      <select name="research_mode">
+                        <option value="people_first" ${(dir.research_mode || "people_first") === "people_first" ? "selected" : ""}>People-first</option>
+                        <option value="posts" ${dir.research_mode === "posts" ? "selected" : ""}>Posts</option>
+                        <option value="reels" ${dir.research_mode === "reels" ? "selected" : ""}>Reels (legacy)</option>
+                      </select>
+                    </div>
                     <div class="field"><label>Content pillars (one per line)</label><textarea name="pillars">${esc((dir.content_pillars || []).join("\n"))}</textarea></div>
                     <div class="field"><label>Brand voice</label><textarea name="brand_voice">${esc(dir.brand_voice || "")}</textarea></div>
                     <div class="field"><label>Constraints</label><textarea name="constraints">${esc(dir.constraints || "")}</textarea></div>

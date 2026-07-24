@@ -44,11 +44,12 @@ def test_filter_sample_file():
 
 
 def test_synthesize_offline():
-    filter_raw_file(RAW_DIR / "sample_scraped.json", offline=True)
-    report = synthesize_dashboard(offline=True)
+    filtered = filter_raw_file(RAW_DIR / "sample_scraped.json", offline=True)
+    report = synthesize_dashboard(offline=True, filtered_path=filtered)
     content = report.read_text()
-    assert "Trending Reels Script" in content
-    assert "Lead Generation Ads" in content
+    assert "Founder-Led Reel Scripts" in content
+    assert "Interactive Posts" in content
+    assert "Creator Follow Recommendations" in content
 
 
 def test_safety_helpers():

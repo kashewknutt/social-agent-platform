@@ -541,9 +541,12 @@ async def execute_auto_interactions(
     settings: Settings | None = None,
     checkpoint: CheckpointFn | None = None,
     dry_run: bool = False,
-    kinds: tuple[str, ...] = ("like", "follow"),
+    kinds: tuple[str, ...] = ("like",),
 ) -> list[dict[str, Any]]:
-    """Execute proposed auto interactions (likes/follows) with humanized delays."""
+    """Execute proposed auto interactions (likes) with humanized delays.
+
+    Follows are HITL and must go through approve → execute-approved.
+    """
     cfg = settings or get_settings()
     rows = list_interactions(run_id=run_id, status="proposed", limit=500)
     auto_rows = [r for r in rows if r.get("auto") and r.get("kind") in kinds]

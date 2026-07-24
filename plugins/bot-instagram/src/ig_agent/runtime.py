@@ -64,8 +64,8 @@ def _merge_posts_into_filtered_file(
         filtered_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 DEFAULT_CONSTRAINTS = (
-    "While browsing research, like relevant creator posts live. "
-    "Comments/DMs/posts still require human approval (HITL)."
+    "Discover via niche hashtags/phrases/profiles. Like only gated content. "
+    "Follows require human approval (HITL); comment/DM/post also HITL."
 )
 
 
@@ -80,6 +80,9 @@ def _direction_from_context(ctx: dict[str, Any]) -> Direction:
         brand_voice=ctx.get("brand_voice", ""),
         competitor_hashtags=list(ctx.get("competitor_hashtags", [])),
         competitor_profiles=list(ctx.get("competitor_profiles", [])),
+        discovery_phrases=list(ctx.get("discovery_phrases", [])),
+        preferred_formats=list(ctx.get("preferred_formats", [])),
+        research_mode=str(ctx.get("research_mode") or "people_first"),
         goals=ctx.get("goals", ""),
         constraints=ctx.get("constraints", DEFAULT_CONSTRAINTS),
     )
@@ -154,7 +157,11 @@ async def run_pipeline(controller: BotController, request: RunRequest) -> None:
     settings = get_settings()
     init_db()
     direction = controller.get_direction()
-    from ig_agent.hashtag_rotation import pick_hashtags_for_session, prune_history
+    from ig_agent.hashtag_rotation import (
+        pick_hashtags_for_session,
+        pick_phrases_for_session,
+        prune_history,
+    )
 
     prune_history(keep_days=14.0)
     hashtags, hashtag_note = pick_hashtags_for_session(
@@ -162,6 +169,20 @@ async def run_pipeline(controller: BotController, request: RunRequest) -> None:
         max_pick=1,
         within_days=settings.hashtag_cooldown_days,
     )
+    phrases, phrase_note = pick_phrases_for_session(
+        getattr(direction, "discovery_phrases", None) or [],
+        max_pick=1,
+        within_days=settings.hashtag_cooldown_days,
+    )
+    profiles = list(getattr(direction, "competitor_profiles", None) or [])
+    # Prefer explicit run override; else persisted Direction.research_mode; else people_first.
+    content_mode = (
+        (getattr(request, "content_mode", None) or "").strip()
+        or (getattr(direction, "research_mode", None) or "").strip()
+        or "people_first"
+    ).lower()
+    if content_mode in {"people", "people-first", "peoplefirst"}:
+        content_mode = "people_first"
 
     async def one_pass() -> None:
         await controller.checkpoint()
@@ -190,9 +211,9 @@ async def run_pipeline(controller: BotController, request: RunRequest) -> None:
                     f"Daily scroll session limit ({settings.max_scroll_sessions_per_day}) reached."
                 )
             await controller.checkpoint()
-            # Live like/follow happens inside the browse pass (not a later engage step).
-            if hashtag_note and not request.sample:
-                controller.set_step("ingest", hashtag_note)
+            seed_note = " · ".join(x for x in (hashtag_note, phrase_note) if x)
+            if seed_note and not request.sample:
+                controller.set_step("ingest", seed_note)
 
             def on_progress(msg: str) -> None:
                 controller.set_step("ingest", msg)
@@ -245,13 +266,15 @@ async def run_pipeline(controller: BotController, request: RunRequest) -> None:
             raw_path = await capture_trends_with_delays(
                 settings,
                 hashtags,
+                phrases=phrases,
+                profiles=profiles,
                 on_progress=on_progress,
                 should_stop=lambda: controller._stop.is_set(),
                 on_posts=on_posts,
                 engage_live=engage_live,
                 run_id=controller.run_id,
                 controller=controller,
-                content_mode=getattr(request, "content_mode", "reels"),
+                content_mode=content_mode,
             )
             controller.set_step("ingest", f"Ingested → {raw_path.name}")
 
@@ -384,9 +407,17 @@ async def run_pipeline(controller: BotController, request: RunRequest) -> None:
                     fields=("media_path", "screenshot_path", "video_path"),
                 )
             controller.set_step("multimodal", "Analyzing captured media")
+            agency_mm = load_agency_context()
             multimodal_notes = await asyncio.to_thread(
-                analyze_from_filtered_file, filtered_path, settings
+                analyze_from_filtered_file, filtered_path, settings, agency_mm
             )
+            # Reload kept posts after format re-score from vision.
+            try:
+                refreshed = json.loads(filtered_path.read_text(encoding="utf-8"))
+                kept_posts = list(refreshed.get("posts") or [])
+                all_scored = list(refreshed.get("all_scored") or all_scored)
+            except Exception:
+                pass
             controller.set_step("multimodal", f"{len(multimodal_notes)} notes")
 
         await controller.checkpoint()
@@ -425,16 +456,17 @@ async def run_pipeline(controller: BotController, request: RunRequest) -> None:
                     "Sample/offline mode — skipped browser engagement (HITL left proposed)",
                 )
             else:
-                # Likes/follows already attempted live during browse ingest.
-                # Only backfill any remaining auto likes/follows that were proposed
-                # but not marked done (e.g. agent forgot to set liked/followed flags).
+                # Likes may have been attempted live during browse ingest (legacy modes).
+                # People-first collects first; backfill only auto likes here.
+                # Follows stay HITL (approve → execute-approved).
                 await controller.checkpoint()
-                controller.set_step("engage", "Backfilling any missed auto likes/follows")
+                controller.set_step("engage", "Backfilling any missed auto likes")
                 results = await execute_auto_interactions(
                     run_id=controller.run_id,
                     settings=settings,
                     checkpoint=controller.checkpoint,
                     dry_run=False,
+                    kinds=("like",),
                 )
                 done = sum(1 for r in results if r.get("status") == "done")
                 failed = sum(1 for r in results if r.get("status") == "failed")
@@ -458,7 +490,7 @@ async def run_pipeline(controller: BotController, request: RunRequest) -> None:
                 controller.set_step(
                     "engage",
                     f"Live liked={live_likes} followed={live_follows}; "
-                    f"backfill done={done} failed={failed}; {hitl_left} HITL awaiting approval",
+                    f"backfill likes done={done} failed={failed}; {hitl_left} HITL awaiting approval",
                 )
 
     if request.mode == RunMode.ONCE:

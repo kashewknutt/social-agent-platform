@@ -57,6 +57,8 @@ def _build_filter_prompt(agency_context: dict[str, Any], posts: list[dict[str, A
         "Score EVERY Instagram post for relevance to the agency's content strategy. "
         "Be generous with founder-journey, business-struggle, MVP, startup, and "
         "build-in-public angles — these are core targets even when not explicitly about tech. "
+        "Prefer people-led content cues (talking head, podcast/mic, spoken advice, instructional "
+        "demo, founder Q&A) over coding memes, faceless desk aesthetics, or text-only slides. "
         "HARD REJECT (score 0, never keep): spam, clickbait, side-hustle bait, MLM/affiliate "
         "schemes, 'read caption' / 'if you're a student' / 'earn side income' / 'follow these "
         "steps' / numbered how-to-earn listicles, overly long AI-generated caption walls, "
@@ -185,6 +187,7 @@ def score_all_posts(
             item["post_index"] = clean_indices[local_idx]
         all_scored = spam_scored + scored
         all_scored.sort(key=lambda p: int(p.get("post_index", 0)))
+        all_scored = _apply_people_first_gate(all_scored, ctx)
         if on_progress:
             on_progress(all_scored, total)
         return all_scored
@@ -202,11 +205,33 @@ def score_all_posts(
         scored_clean.extend(batch_scored)
         merged = spam_scored + scored_clean
         merged.sort(key=lambda p: int(p.get("post_index", 0)))
+        gated = _apply_people_first_gate(merged, ctx)
         if on_progress:
-            on_progress(merged, total)
+            on_progress(gated, total)
     all_scored = spam_scored + scored_clean
     all_scored.sort(key=lambda p: int(p.get("post_index", 0)))
-    return all_scored
+    return _apply_people_first_gate(all_scored, ctx)
+
+
+def _apply_people_first_gate(
+    scored: list[dict[str, Any]],
+    agency_context: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Second-stage gate: topical keep AND people-first format keep."""
+    from ig_agent.format_gate import apply_format_gate
+
+    preferred = list(agency_context.get("preferred_formats") or [])
+    require = str(agency_context.get("research_mode") or "people_first").lower() in {
+        "people_first",
+        "people",
+        "people-first",
+        "",
+    }
+    return apply_format_gate(
+        scored,
+        preferred_formats=preferred,
+        require_format=require,
+    )
 
 
 def score_posts(
