@@ -54,30 +54,35 @@ def _build_ingest_task(
     follows_left = remaining_cap("follow", settings)
 
     if engage_live:
+        caps_line = f"   - Soft room left: likes≈{likes_left}."
+        if follows_left > 0:
+            caps_line += f" follows≈{follows_left}."
         engage_block = (
             "4) On EACH reel/post you open (fast):\n"
-            "   - Do NOT click Like or Follow yourself — scripted automation handles post likes "
-            "and follows on the current screen.\n"
-            "   - Scroll to the next reel/post quickly. Never sit on one post.\n"
-            f"   - Soft room left: likes≈{likes_left}, follows≈{follows_left}.\n"
-            "   - No comments, DMs, saves, or new posts.\n"
+            "   - Do NOT click Like or Follow yourself — scripted automation handles post likes"
+            + (" and follows on the current screen.\n" if follows_left > 0 else " on the current screen.\n")
+            + "   - Scroll to the next reel/post quickly. Never sit on one post.\n"
+            + caps_line + "\n"
+            + "   - No comments, DMs, saves, or new posts.\n"
         )
     else:
         engage_block = "4) Observation only — do not like/follow/comment/DM.\n"
 
     return (
-        "SPEED RUN — Instagram research for Valnee Solutions (valnee.com).\n"
+        "SPEED RUN — Instagram people-first research for Valnee Solutions (valnee.com).\n"
         "If a login wall appears, stop and say login is required.\n\n"
         "Rules:\n"
-        "- Move FAST. Max ~8–12 seconds per post. Like → note URL/caption → NEXT.\n"
-        "- Never linger on a post you already liked. Never loop the same URL.\n"
+        "- Move FAST. Max ~8–12 seconds per post. Note URL/caption/username → NEXT.\n"
+        "- Prefer people speaking into a mic, founder advice, podcasts, instructional talking heads.\n"
+        "- Skip coding memes, faceless desk aesthetics, text-only slideshows.\n"
+        "- Never linger on a post you already noted. Never loop the same URL.\n"
         "- Do not explore suggestions, stories, or Related.\n\n"
-        "1) Open https://www.instagram.com/explore/ (or a hashtag search).\n"
-        f"2) Open up to {n} founder/MVP/startup/SaaS/build-in-public reels.{tag_clause}\n"
+        "1) Open a niche hashtag search (or Explore search for founder/MVP phrases).\n"
+        f"2) Open up to {n} founder-led people reels (talking-head / instructional).{tag_clause}\n"
         "3) Capture: post_url, caption (short), username, liked, followed.\n"
         f"{engage_block}"
         f"5) As soon as you have {target} posts with URLs, call done and return JSON only:\n"
-        '{"posts":[{"post_url":"...","caption":"...","username":"...","liked":true,"followed":false,'
+        '{"posts":[{"post_url":"...","caption":"...","username":"...","liked":false,"followed":false,'
         '"post_type":"reel","likes":null,"views":null,"comments_count":null}]}\n'
         "Stop immediately after the JSON — do not keep scrolling."
     )
@@ -319,13 +324,15 @@ async def capture_trends(
     settings: Settings | None = None,
     hashtags: list[str] | None = None,
     *,
+    phrases: list[str] | None = None,
+    profiles: list[str] | None = None,
     on_progress: ProgressFn | None = None,
     should_stop: StopFn | None = None,
     on_posts: PostsFn | None = None,
     engage_live: bool = True,
     run_id: str | None = None,
     controller: Any | None = None,
-    content_mode: str = "reels",
+    content_mode: str = "people_first",
 ) -> Path:
     """Run ingestion — scripted scraper first, LLM agent as fallback."""
     cfg = settings or get_settings()
@@ -334,6 +341,8 @@ async def capture_trends(
             return await _capture_trends_scripted(
                 cfg,
                 hashtags,
+                phrases=phrases,
+                profiles=profiles,
                 on_progress=on_progress,
                 should_stop=should_stop,
                 on_posts=on_posts,
@@ -364,13 +373,15 @@ async def _capture_trends_scripted(
     cfg: Settings,
     hashtags: list[str] | None = None,
     *,
+    phrases: list[str] | None = None,
+    profiles: list[str] | None = None,
     on_progress: ProgressFn | None = None,
     should_stop: StopFn | None = None,
     on_posts: PostsFn | None = None,
     engage_live: bool = True,
     run_id: str | None = None,
     controller: Any | None = None,
-    content_mode: str = "reels",
+    content_mode: str = "people_first",
 ) -> Path:
     from ig_agent.browser_factory import make_browser_session, safe_kill
     from ig_agent.scraper import ScrapeError, scrape_research_batch
@@ -386,9 +397,11 @@ async def _capture_trends_scripted(
         logger.info(msg)
 
     limit = max(1, cfg.max_posts_per_session)
-    mode = (content_mode or "reels").strip().lower()
+    mode = (content_mode or "people_first").strip().lower()
+    # People-first collects without live engage; likes/follows happen after gates.
+    live = False if mode in {"people_first", "people", "people-first"} else engage_live
     progress(
-        f"Scripted scrape (target {limit} {mode}, engage={'ON' if engage_live else 'OFF'})…"
+        f"Scripted scrape (target {limit} {mode}, engage={'ON' if live else 'OFF'})…"
     )
 
     browser = make_browser_session(cfg, headless=False)
@@ -398,8 +411,10 @@ async def _capture_trends_scripted(
         posts = await scrape_research_batch(
             browser,
             hashtags=hashtags,
+            phrases=phrases,
+            profiles=profiles,
             limit=limit,
-            engage_live=engage_live,
+            engage_live=live,
             settings=cfg,
             on_progress=progress,
             controller=controller,
@@ -412,7 +427,9 @@ async def _capture_trends_scripted(
         progress(f"Scripted scrape collected {len(posts)} post(s)")
         if hashtags:
             progress(f"Session hashtag(s): {', '.join('#' + str(h).lstrip('#') for h in hashtags)}")
-        if engage_live:
+        if phrases:
+            progress(f"Session phrase(s): {', '.join(str(p) for p in phrases)}")
+        if live:
             stats = record_live_engagements(posts, run_id=run_id, settings=cfg)
             progress(
                 f"Live engage recorded: liked {stats['liked']} · followed {stats['followed']}"
@@ -433,9 +450,12 @@ async def _capture_trends_scripted(
             {
                 "timestamp": datetime.now().isoformat(),
                 "post_count": len(posts),
-                "engage_live": engage_live,
+                "engage_live": live,
                 "scraper": "scripted",
+                "content_mode": mode,
                 "hashtags": hashtags or [],
+                "phrases": phrases or [],
+                "profiles": profiles or [],
                 "posts": posts,
             },
             indent=2,
@@ -744,13 +764,15 @@ async def capture_trends_with_delays(
     settings: Settings | None = None,
     hashtags: list[str] | None = None,
     *,
+    phrases: list[str] | None = None,
+    profiles: list[str] | None = None,
     on_progress: ProgressFn | None = None,
     should_stop: StopFn | None = None,
     on_posts: PostsFn | None = None,
     engage_live: bool = True,
     run_id: str | None = None,
     controller: Any | None = None,
-    content_mode: str = "reels",
+    content_mode: str = "people_first",
 ) -> Path:
     """Ingest with a short warm-up before browser launch."""
     if on_progress:
@@ -759,6 +781,8 @@ async def capture_trends_with_delays(
     path = await capture_trends(
         settings,
         hashtags,
+        phrases=phrases,
+        profiles=profiles,
         on_progress=on_progress,
         should_stop=should_stop,
         on_posts=on_posts,

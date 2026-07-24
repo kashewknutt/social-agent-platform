@@ -60,7 +60,18 @@ class Settings:
         default_factory=lambda: os.getenv("KIMI_BROWSER_MODEL", "kimi-k2.6")
     )
     kimi_request_timeout_s: float = field(
-        default_factory=lambda: float(os.getenv("KIMI_REQUEST_TIMEOUT_S", "45"))
+        default_factory=lambda: float(os.getenv("KIMI_REQUEST_TIMEOUT_S", "60"))
+    )
+    # Synthesis embeds the full filtered shortlist + multimodal notes and asks
+    # for a multi-section markdown report — a much heavier call than filter/
+    # draft scoring, so it gets its own, longer timeout.
+    kimi_synth_timeout_s: float = field(
+        default_factory=lambda: float(os.getenv("KIMI_SYNTH_TIMEOUT_S", "120"))
+    )
+    # Video/image analysis (multimodal + Analyzer) also needs more time than a
+    # plain text call — uploading + processing media isn't instant.
+    kimi_multimodal_timeout_s: float = field(
+        default_factory=lambda: float(os.getenv("KIMI_MULTIMODAL_TIMEOUT_S", "90"))
     )
     filter_batch_size: int = field(
         default_factory=lambda: int(os.getenv("FILTER_BATCH_SIZE", "6"))
@@ -93,13 +104,17 @@ class Settings:
     relevance_threshold: int = field(
         default_factory=lambda: int(os.getenv("RELEVANCE_THRESHOLD", "35"))
     )
+    # Captions longer than this are treated as spam/AI listicle bait.
+    spam_max_caption_len: int = field(
+        default_factory=lambda: int(os.getenv("SPAM_MAX_CAPTION_LEN", "900"))
+    )
 
     # Engagement daily caps
     max_likes_per_day: int = field(
         default_factory=lambda: int(os.getenv("MAX_LIKES_PER_DAY", "80"))
     )
     max_follows_per_day: int = field(
-        default_factory=lambda: int(os.getenv("MAX_FOLLOWS_PER_DAY", "40"))
+        default_factory=lambda: int(os.getenv("MAX_FOLLOWS_PER_DAY", "0"))
     )
     max_comments_per_day: int = field(
         default_factory=lambda: int(os.getenv("MAX_COMMENTS_PER_DAY", "12"))

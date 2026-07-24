@@ -316,6 +316,42 @@ function DirectionForm({ value, onSave, disabled }) {
         />
       </div>
       <div className="field">
+        <label htmlFor="phrases">Search phrases (one per line)</label>
+        <textarea
+          id="phrases"
+          value={(draft.discovery_phrases || []).join("\n")}
+          onChange={(e) => setList("discovery_phrases", e.target.value)}
+        />
+      </div>
+      <div className="field">
+        <label htmlFor="profiles">Creator profiles (one per line)</label>
+        <textarea
+          id="profiles"
+          value={(draft.competitor_profiles || []).join("\n")}
+          onChange={(e) => setList("competitor_profiles", e.target.value)}
+        />
+      </div>
+      <div className="field">
+        <label htmlFor="formats">Preferred formats (one per line)</label>
+        <textarea
+          id="formats"
+          value={(draft.preferred_formats || []).join("\n")}
+          onChange={(e) => setList("preferred_formats", e.target.value)}
+        />
+      </div>
+      <div className="field">
+        <label htmlFor="research_mode">Research mode</label>
+        <select
+          id="research_mode"
+          value={draft.research_mode || "people_first"}
+          onChange={(e) => setField("research_mode", e.target.value)}
+        >
+          <option value="people_first">People-first (hashtags / phrases / profiles)</option>
+          <option value="posts">Posts (hashtag grid)</option>
+          <option value="reels">Reels feed (legacy)</option>
+        </select>
+      </div>
+      <div className="field">
         <label htmlFor="pillars">Content pillars (one per line)</label>
         <textarea
           id="pillars"

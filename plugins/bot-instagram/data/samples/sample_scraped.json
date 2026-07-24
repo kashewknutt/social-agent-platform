@@ -1,0 +1,46 @@
+{
+  "timestamp": "2026-07-18T00:00:00",
+  "post_count": 4,
+  "posts": [
+    {
+      "post_url": "https://www.instagram.com/reel/sample1/",
+      "username": "saasarchitect",
+      "profile_url": "https://www.instagram.com/saasarchitect/",
+      "caption": "Building a SaaS architecture that scales — lessons from shipping B2B apps #saas #softwaredevelopment",
+      "likes": 1200,
+      "views": 18000,
+      "comments_count": 45,
+      "post_type": "reel"
+    },
+    {
+      "post_url": "https://www.instagram.com/reel/sample2/",
+      "username": "devworkflow",
+      "profile_url": "https://www.instagram.com/devworkflow/",
+      "caption": "Developer workflow humor: when the staging env is production #codinglife #webdevelopment",
+      "likes": 3400,
+      "views": 52000,
+      "comments_count": 120,
+      "post_type": "reel"
+    },
+    {
+      "post_url": "https://www.instagram.com/p/sample3/",
+      "username": "glowskinlab",
+      "profile_url": "https://www.instagram.com/glowskinlab/",
+      "caption": "Morning skincare routine for glowing skin #skincare #beauty",
+      "likes": 9000,
+      "views": null,
+      "comments_count": 200,
+      "post_type": "image"
+    },
+    {
+      "post_url": "https://www.instagram.com/reel/sample4/",
+      "username": "startuphire",
+      "profile_url": "https://www.instagram.com/startuphire/",
+      "caption": "Tech startup pitfalls when hiring your first engineering team #techstartup #saas",
+      "likes": 800,
+      "views": 11000,
+      "comments_count": 33,
+      "post_type": "reel"
+    }
+  ]
+}

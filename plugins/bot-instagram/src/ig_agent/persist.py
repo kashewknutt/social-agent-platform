@@ -24,8 +24,9 @@ VALID_STATUSES = frozenset(
         "skipped",
     }
 )
-AUTO_KINDS = frozenset({"like", "follow"})
-HITL_KINDS = frozenset({"comment", "dm", "post"})
+# Likes stay auto. Follows require human approval so feed training stays intentional.
+AUTO_KINDS = frozenset({"like"})
+HITL_KINDS = frozenset({"follow", "comment", "dm", "post"})
 
 
 def _now() -> str:

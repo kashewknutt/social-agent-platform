@@ -64,9 +64,100 @@ def _merge_posts_into_filtered_file(
         filtered_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 DEFAULT_CONSTRAINTS = (
-    "While browsing research, like and follow relevant creator posts live. "
-    "Comments/DMs/posts still require human approval (HITL)."
+    "Discover via niche hashtags/phrases/profiles. Like only gated content. "
+    "Follows require human approval (HITL); comment/DM/post also HITL."
 )
+
+# People-first defaults applied when an older placeholder direction is detected.
+PEOPLE_FIRST_HASHTAGS = [
+    "#founderstory",
+    "#founderjourney",
+    "#founderadvice",
+    "#startupadvice",
+    "#startuptips",
+    "#buildinpublic",
+    "#saasfounder",
+    "#b2bsaas",
+    "#productfounder",
+    "#mvp",
+    "#mvplaunch",
+    "#startupindia",
+    "#indianfounders",
+    "#founderpodcast",
+    "#businesspodcast",
+]
+PEOPLE_FIRST_PHRASES = [
+    "founder advice",
+    "MVP lessons",
+    "startup mistakes",
+    "product validation",
+    "non-technical founder",
+    "founder interview",
+    "startup podcast",
+    "SaaS founder story",
+    "technical cofounder advice",
+    "MVP launch lessons",
+]
+PEOPLE_FIRST_FORMATS = [
+    "talking_head",
+    "microphone",
+    "podcast_interview",
+    "spoken_explanation",
+    "demonstration",
+    "q_and_a",
+    "direct_instruction",
+]
+PEOPLE_FIRST_GOALS = (
+    "Collect founder-led people content (talking-head, mic/podcast, instructional) and "
+    "turn it into audience-participation ideas that build Valnee Solutions trust: founder "
+    "authority, proof of execution, transparent education, customer-risk reduction, and "
+    "repeatable conversations with non-technical founders. Prefer human-speaking reels over "
+    "text slides, coding memes, or faceless B-roll."
+)
+PEOPLE_FIRST_CONSTRAINTS = (
+    "Discover via niche hashtags, search phrases, and approved creator profiles before generic "
+    "Reels. Do not auto-follow; propose evidence-backed creator follows for human approval. "
+    "Like only after topical + people-first format gates pass. Comments/DMs/posts require HITL. "
+    "Always brand as Valnee Solutions / valnee.com. Avoid comment-KEYWORD-for-DM bait."
+)
+
+
+def _normalize_tag(tag: str) -> str:
+    return (tag or "").strip().lower().lstrip("#")
+
+
+def _is_legacy_direction(ctx: dict[str, Any]) -> bool:
+    tags = [_normalize_tag(t) for t in (ctx.get("competitor_hashtags") or []) if str(t).strip()]
+    if tags == ["trending"]:
+        return True
+    goals = str(ctx.get("goals") or "")
+    if "Find adaptable content angles" in goals and "people-first" not in goals.lower():
+        return True
+    constraints = str(ctx.get("constraints") or "")
+    if "like and follow relevant creator posts live" in constraints.lower():
+        return True
+    if not ctx.get("discovery_phrases") and not ctx.get("preferred_formats"):
+        if tags == ["trending"] or (len(tags) <= 1 and "trending" in tags):
+            return True
+    return False
+
+
+def migrate_legacy_direction(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Upgrade placeholder direction configs to people-first defaults."""
+    if not _is_legacy_direction(ctx):
+        return ctx
+    out = dict(ctx)
+    out["competitor_hashtags"] = list(PEOPLE_FIRST_HASHTAGS)
+    out.setdefault("discovery_phrases", list(PEOPLE_FIRST_PHRASES))
+    if not out.get("discovery_phrases"):
+        out["discovery_phrases"] = list(PEOPLE_FIRST_PHRASES)
+    out.setdefault("preferred_formats", list(PEOPLE_FIRST_FORMATS))
+    if not out.get("preferred_formats"):
+        out["preferred_formats"] = list(PEOPLE_FIRST_FORMATS)
+    out["research_mode"] = str(out.get("research_mode") or "people_first")
+    out["goals"] = PEOPLE_FIRST_GOALS
+    out["constraints"] = PEOPLE_FIRST_CONSTRAINTS
+    return out
 
 
 def _direction_from_context(ctx: dict[str, Any]) -> Direction:
@@ -80,6 +171,9 @@ def _direction_from_context(ctx: dict[str, Any]) -> Direction:
         brand_voice=ctx.get("brand_voice", ""),
         competitor_hashtags=list(ctx.get("competitor_hashtags", [])),
         competitor_profiles=list(ctx.get("competitor_profiles", [])),
+        discovery_phrases=list(ctx.get("discovery_phrases", [])),
+        preferred_formats=list(ctx.get("preferred_formats", [])),
+        research_mode=str(ctx.get("research_mode") or "people_first"),
         goals=ctx.get("goals", ""),
         constraints=ctx.get("constraints", DEFAULT_CONSTRAINTS),
     )
@@ -88,7 +182,12 @@ def _direction_from_context(ctx: dict[str, Any]) -> Direction:
 def load_direction() -> Direction:
     if not AGENCY_CONTEXT_PATH.exists():
         return Direction(constraints=DEFAULT_CONSTRAINTS)
-    return _direction_from_context(json.loads(AGENCY_CONTEXT_PATH.read_text(encoding="utf-8")))
+    raw = json.loads(AGENCY_CONTEXT_PATH.read_text(encoding="utf-8"))
+    migrated = migrate_legacy_direction(raw)
+    if migrated != raw:
+        save_direction(_direction_from_context(migrated))
+        logger.info("Migrated legacy agency_context.json to people-first defaults")
+    return _direction_from_context(migrated)
 
 
 def save_direction(direction: Direction) -> None:
@@ -154,7 +253,11 @@ async def run_pipeline(controller: BotController, request: RunRequest) -> None:
     settings = get_settings()
     init_db()
     direction = controller.get_direction()
-    from ig_agent.hashtag_rotation import pick_hashtags_for_session, prune_history
+    from ig_agent.hashtag_rotation import (
+        pick_hashtags_for_session,
+        pick_phrases_for_session,
+        prune_history,
+    )
 
     prune_history(keep_days=14.0)
     hashtags, hashtag_note = pick_hashtags_for_session(
@@ -162,6 +265,20 @@ async def run_pipeline(controller: BotController, request: RunRequest) -> None:
         max_pick=1,
         within_days=settings.hashtag_cooldown_days,
     )
+    phrases, phrase_note = pick_phrases_for_session(
+        getattr(direction, "discovery_phrases", None) or [],
+        max_pick=1,
+        within_days=settings.hashtag_cooldown_days,
+    )
+    profiles = list(getattr(direction, "competitor_profiles", None) or [])
+    # Prefer explicit run override; else persisted Direction.research_mode; else people_first.
+    content_mode = (
+        (getattr(request, "content_mode", None) or "").strip()
+        or (getattr(direction, "research_mode", None) or "").strip()
+        or "people_first"
+    ).lower()
+    if content_mode in {"people", "people-first", "peoplefirst"}:
+        content_mode = "people_first"
 
     async def one_pass() -> None:
         await controller.checkpoint()
@@ -190,9 +307,9 @@ async def run_pipeline(controller: BotController, request: RunRequest) -> None:
                     f"Daily scroll session limit ({settings.max_scroll_sessions_per_day}) reached."
                 )
             await controller.checkpoint()
-            # Live like/follow happens inside the browse pass (not a later engage step).
-            if hashtag_note and not request.sample:
-                controller.set_step("ingest", hashtag_note)
+            seed_note = " · ".join(x for x in (hashtag_note, phrase_note) if x)
+            if seed_note and not request.sample:
+                controller.set_step("ingest", seed_note)
 
             def on_progress(msg: str) -> None:
                 controller.set_step("ingest", msg)
@@ -245,13 +362,15 @@ async def run_pipeline(controller: BotController, request: RunRequest) -> None:
             raw_path = await capture_trends_with_delays(
                 settings,
                 hashtags,
+                phrases=phrases,
+                profiles=profiles,
                 on_progress=on_progress,
                 should_stop=lambda: controller._stop.is_set(),
                 on_posts=on_posts,
                 engage_live=engage_live,
                 run_id=controller.run_id,
                 controller=controller,
-                content_mode=getattr(request, "content_mode", "reels"),
+                content_mode=content_mode,
             )
             controller.set_step("ingest", f"Ingested → {raw_path.name}")
 
@@ -384,9 +503,17 @@ async def run_pipeline(controller: BotController, request: RunRequest) -> None:
                     fields=("media_path", "screenshot_path", "video_path"),
                 )
             controller.set_step("multimodal", "Analyzing captured media")
+            agency_mm = load_agency_context()
             multimodal_notes = await asyncio.to_thread(
-                analyze_from_filtered_file, filtered_path, settings
+                analyze_from_filtered_file, filtered_path, settings, agency_mm
             )
+            # Reload kept posts after format re-score from vision.
+            try:
+                refreshed = json.loads(filtered_path.read_text(encoding="utf-8"))
+                kept_posts = list(refreshed.get("posts") or [])
+                all_scored = list(refreshed.get("all_scored") or all_scored)
+            except Exception:
+                pass
             controller.set_step("multimodal", f"{len(multimodal_notes)} notes")
 
         await controller.checkpoint()
@@ -425,16 +552,17 @@ async def run_pipeline(controller: BotController, request: RunRequest) -> None:
                     "Sample/offline mode — skipped browser engagement (HITL left proposed)",
                 )
             else:
-                # Likes/follows already attempted live during browse ingest.
-                # Only backfill any remaining auto likes/follows that were proposed
-                # but not marked done (e.g. agent forgot to set liked/followed flags).
+                # Likes may have been attempted live during browse ingest (legacy modes).
+                # People-first collects first; backfill only auto likes here.
+                # Follows stay HITL (approve → execute-approved).
                 await controller.checkpoint()
-                controller.set_step("engage", "Backfilling any missed auto likes/follows")
+                controller.set_step("engage", "Backfilling any missed auto likes")
                 results = await execute_auto_interactions(
                     run_id=controller.run_id,
                     settings=settings,
                     checkpoint=controller.checkpoint,
                     dry_run=False,
+                    kinds=("like",),
                 )
                 done = sum(1 for r in results if r.get("status") == "done")
                 failed = sum(1 for r in results if r.get("status") == "failed")
@@ -458,7 +586,7 @@ async def run_pipeline(controller: BotController, request: RunRequest) -> None:
                 controller.set_step(
                     "engage",
                     f"Live liked={live_likes} followed={live_follows}; "
-                    f"backfill done={done} failed={failed}; {hitl_left} HITL awaiting approval",
+                    f"backfill likes done={done} failed={failed}; {hitl_left} HITL awaiting approval",
                 )
 
     if request.mode == RunMode.ONCE:

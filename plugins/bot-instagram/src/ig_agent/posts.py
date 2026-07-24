@@ -130,6 +130,8 @@ def normalize_posts(posts: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     if not posts:
         return []
 
+    from ig_agent.format_gate import enrich_post_identity
+
     out: list[dict[str, Any]] = []
     for item in posts:
         if not isinstance(item, dict):
@@ -146,7 +148,7 @@ def normalize_posts(posts: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
                 clean["caption"] = ""
             if is_agent_noise(str(raw or "")):
                 clean.pop("raw_text", None)
-            out.append(clean)
+            out.append(enrich_post_identity(clean))
             continue
 
         for blob in (raw, caption):
@@ -169,7 +171,7 @@ def normalize_posts(posts: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
         if not url or url in seen:
             continue
         seen.add(url)
-        clean = dict(post)
+        clean = enrich_post_identity(dict(post))
         clean["post_url"] = url
         if is_agent_noise(str(clean.get("caption") or "")):
             clean["caption"] = ""

@@ -28,10 +28,11 @@ class RunRequest(BaseModel):
     multimodal: bool = False
     offline: bool = False
     engage: bool = True
-    # Ingest source for this run. Bot-specific meaning; Instagram uses
-    # "reels" (scroll IG's algorithmic Reels feed, default) vs "posts"
-    # (search the bot's configured hashtags for real posts/reels mixed).
-    content_mode: str = "reels"
+    # Ingest source for this run. Instagram uses:
+    # "people_first" (niche hashtags/phrases/profiles first — preferred),
+    # "posts" (hashtag grid first), or "reels" (scroll IG Reels feed).
+    # Empty string falls back to Direction.research_mode.
+    content_mode: str = ""
 
 
 class Direction(BaseModel):
@@ -44,10 +45,16 @@ class Direction(BaseModel):
     brand_voice: str = ""
     competitor_hashtags: list[str] = Field(default_factory=list)
     competitor_profiles: list[str] = Field(default_factory=list)
+    # Intent-rich Instagram search phrases (one concept per entry).
+    discovery_phrases: list[str] = Field(default_factory=list)
+    # Preferred media formats, e.g. talking_head, microphone, podcast_interview.
+    preferred_formats: list[str] = Field(default_factory=list)
+    # Persisted ingest strategy: "people_first" | "posts" | "reels".
+    research_mode: str = "people_first"
     goals: str = ""
     constraints: str = (
-        "Ingest is observation-only. Engagement (like/follow auto; "
-        "comment/DM/post after human approval) runs in a separate browser pass."
+        "Discover via niche hashtags/phrases/profiles. Like only gated content. "
+        "Follows require human approval (HITL); comment/DM/post also HITL."
     )
 
 

@@ -1,0 +1,50 @@
+{
+  "source_file": "sample_scraped.json",
+  "filtered_at": "2026-07-18T19:41:01.091642",
+  "post_count": 3,
+  "normalized_input_count": 4,
+  "posts": [
+    {
+      "post_url": "https://www.instagram.com/reel/sample1/",
+      "username": "saasarchitect",
+      "profile_url": "https://www.instagram.com/saasarchitect/",
+      "caption": "Building a SaaS architecture that scales \u2014 lessons from shipping B2B apps #saas #softwaredevelopment",
+      "likes": 1200,
+      "views": 18000,
+      "comments_count": 45,
+      "post_type": "reel",
+      "post_index": 0,
+      "relevance_score": 100,
+      "reason": "matches 'software'; matches 'saas'; matches 'app'; matches 'architecture'; matches 'b2b'",
+      "adaptable_hook": "Adapt for Valnee Solutions"
+    },
+    {
+      "post_url": "https://www.instagram.com/reel/sample2/",
+      "username": "devworkflow",
+      "profile_url": "https://www.instagram.com/devworkflow/",
+      "caption": "Developer workflow humor: when the staging env is production #codinglife #webdevelopment",
+      "likes": 3400,
+      "views": 52000,
+      "comments_count": 120,
+      "post_type": "reel",
+      "post_index": 1,
+      "relevance_score": 95,
+      "reason": "matches 'developer'; matches 'coding'; matches 'product'",
+      "adaptable_hook": "Adapt for Valnee Solutions"
+    },
+    {
+      "post_url": "https://www.instagram.com/reel/sample4/",
+      "username": "startuphire",
+      "profile_url": "https://www.instagram.com/startuphire/",
+      "caption": "Tech startup pitfalls when hiring your first engineering team #techstartup #saas",
+      "likes": 800,
+      "views": 11000,
+      "comments_count": 33,
+      "post_type": "reel",
+      "post_index": 3,
+      "relevance_score": 100,
+      "reason": "matches 'saas'; matches 'startup'; matches 'tech'; matches 'engineer'",
+      "adaptable_hook": "Adapt for Valnee Solutions"
+    }
+  ]
+}

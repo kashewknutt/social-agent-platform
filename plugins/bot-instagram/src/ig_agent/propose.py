@@ -578,14 +578,15 @@ def propose_interactions(
     """
     Create interaction rows from the filtered shortlist + agency context.
 
-    - like / follow → auto=True, status=proposed (ready for auto-execute)
-    - comment / dm / post → auto=False, status=proposed (HITL)
+    - like → auto=True, status=proposed (ready for auto-execute) — only gated/kept posts
+    - follow / comment / dm / post → auto=False, status=proposed (HITL)
     When refresh_drafts=True, regenerates draft_text on still-proposed HITL rows.
     """
     cfg = settings or get_settings()
     init_db(db_path)
     agency = agency_context or load_agency_context()
-    # Likes/follows: every caught potential. HITL comments/DMs: kept shortlist only.
+    # Likes: people-first kept shortlist only (feed training after gates).
+    # Follows/HITL: kept shortlist with creator evidence.
     all_posts = load_filtered_posts(filtered_path, include_rejected=True)
     kept_posts = load_filtered_posts(filtered_path, include_rejected=False) or [
         p for p in all_posts if p.get("kept")
@@ -595,7 +596,7 @@ def propose_interactions(
 
     ranked_all = sorted(all_posts, key=lambda p: int(p.get("relevance_score") or 0), reverse=True)
     ranked_kept = sorted(kept_posts, key=lambda p: int(p.get("relevance_score") or 0), reverse=True)
-    # If nothing cleared the keep threshold, still HITL the best catches so research isn't a dead end.
+    # Prefer people-first kept; if nothing cleared both gates, still HITL the best catches.
     if not ranked_kept and ranked_all:
         ranked_kept = ranked_all[:3]
         logger.info(
@@ -606,13 +607,15 @@ def propose_interactions(
     like_budget = min(
         max_likes if max_likes is not None else remaining_cap("like", cfg),
         remaining_cap("like", cfg),
-        len(ranked_all),
+        len(ranked_kept),
     )
-    follow_budget = min(
-        max_follows if max_follows is not None else remaining_cap("follow", cfg),
-        remaining_cap("follow", cfg),
-        len(ranked_all),
+    # Follow budget: propose HITL recommendations even when daily execute cap is 0.
+    # Cap stays enforced at execute time; proposal count is bounded separately.
+    follow_propose_cap = max(
+        max_follows if max_follows is not None else 5,
+        5,
     )
+    follow_budget = min(follow_propose_cap, len(ranked_kept))
     comment_budget = min(
         max_comments if max_comments is not None else remaining_cap("comment", cfg),
         remaining_cap("comment", cfg),
@@ -628,8 +631,8 @@ def propose_interactions(
     followed_usernames: set[str] = set()
     dm_usernames: set[str] = set()
 
-    # Likes (auto) — every potential, not only high-score kept
-    for post in ranked_all:
+    # Likes (auto) — only gated/kept people-first posts
+    for post in ranked_kept:
         if len([c for c in created if c["kind"] == "like"]) >= like_budget:
             break
         identity = extract_post_identity(post)
@@ -653,18 +656,28 @@ def propose_interactions(
                 profile_url=identity.get("profile_url"),
                 username=_username_from_post(post) or identity.get("username"),
                 auto=True,
-                payload={"source": "propose", "relevance_score": post.get("relevance_score")},
+                payload={
+                    "source": "propose",
+                    "relevance_score": post.get("relevance_score"),
+                    "format_score": post.get("format_score"),
+                    "content_format": post.get("content_format"),
+                },
                 db_path=db_path,
             )
         )
 
-    # Follows (auto) — every potential username
-    for post in ranked_all:
+    # Follows (HITL) — evidence-backed creator shortlist; never auto-execute
+    for post in ranked_kept:
         if len([c for c in created if c["kind"] == "follow"]) >= follow_budget:
             break
         identity = extract_post_identity(post)
         username = _username_from_post(post) or identity.get("username")
         if not username or username in followed_usernames:
+            continue
+        # Prefer creators that look people-first
+        if post.get("format_kept") is False and not (
+            post.get("human_present") or post.get("spoken_or_instructional")
+        ):
             continue
         if _already_proposed(
             run_id=run_id, kind="follow", post_url=identity.get("post_url"), username=username, db_path=db_path
@@ -673,12 +686,17 @@ def propose_interactions(
         if any(
             r.get("kind") == "follow"
             and (r.get("username") or "").lower() == username.lower()
-            and r.get("status") == "done"
+            and r.get("status") in {"done", "rejected"}
             for r in list_interactions(kind="follow", limit=500, db_path=db_path)
         ):
             continue
         followed_usernames.add(username)
         profile_url = identity.get("profile_url") or f"https://www.instagram.com/{username}/"
+        reason = (
+            f"People-first creator ({post.get('content_format') or 'talking/instructional'}). "
+            f"Topic {post.get('relevance_score')}; format {post.get('format_score')}. "
+            f"{post.get('format_reason') or post.get('reason') or 'Relevant founder/MVP education.'}"
+        )
         created.append(
             create_interaction(
                 kind="follow",
@@ -687,8 +705,18 @@ def propose_interactions(
                 post_url=identity.get("post_url"),
                 profile_url=profile_url,
                 username=username,
-                auto=True,
-                payload={"source": "propose", "relevance_score": post.get("relevance_score")},
+                auto=False,
+                draft_text=reason[:500],
+                payload={
+                    "source": "propose",
+                    "relevance_score": post.get("relevance_score"),
+                    "format_score": post.get("format_score"),
+                    "content_format": post.get("content_format"),
+                    "human_present": post.get("human_present"),
+                    "spoken_or_instructional": post.get("spoken_or_instructional"),
+                    "reason": reason,
+                    "approval_required": True,
+                },
                 db_path=db_path,
             )
         )

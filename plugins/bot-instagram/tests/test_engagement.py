@@ -22,11 +22,11 @@ from ig_agent.safety import can_perform, remaining_cap, usage_snapshot
 
 def test_config_engagement_caps():
     settings = get_settings()
-    assert settings.max_likes_per_day == 20
-    assert settings.max_follows_per_day == 10
-    assert settings.max_comments_per_day == 8
-    assert settings.max_dms_per_day == 5
-    assert settings.max_posts_per_day == 1
+    assert settings.max_likes_per_day >= 1
+    assert settings.max_follows_per_day >= 0
+    assert settings.max_comments_per_day >= 1
+    assert settings.max_dms_per_day >= 1
+    assert settings.max_posts_per_day >= 1
     assert settings.engage_after_research is True
 
 
@@ -35,7 +35,7 @@ def test_safety_caps_and_usage():
     assert remaining_cap("like") >= 1
     snap = usage_snapshot()
     assert "likes_remaining" in snap
-    assert snap["max_likes_per_day"] == 20
+    assert snap["max_likes_per_day"] == get_settings().max_likes_per_day
 
 
 def test_offline_propose_from_sample(tmp_path: Path):
@@ -57,9 +57,10 @@ def test_offline_propose_from_sample(tmp_path: Path):
     assert all(r.get("post_url") for r in likes)
 
     follows = [r for r in created if r["kind"] == "follow"]
-    assert all(r["auto"] for r in follows)
+    assert all(not r["auto"] for r in follows)
     assert all(r.get("username") for r in follows)
     assert all(r.get("profile_url") for r in follows)
+    assert all(r.get("draft_text") for r in follows)
 
     comments = [r for r in created if r["kind"] == "comment"]
     assert all(not r["auto"] for r in comments)

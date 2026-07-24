@@ -91,6 +91,14 @@ _FIND_POST_LIKE_SVG_JS = (
     + _IS_COMMENT_CTX_FN
     + """
   const likeLabels = ['Like', 'Like post'];
+  for (const sel of [
+    'button[aria-label="Like"]', 'button[aria-label="Like post"]',
+    'div[role="button"][aria-label="Like"]', 'div[role="button"][aria-label="Like post"]',
+  ]) {
+    for (const el of document.querySelectorAll(sel)) {
+      if (!isCommentCtx(el)) return el.querySelector('svg') || el;
+    }
+  }
   for (const root of document.querySelectorAll('article, main')) {
     for (const section of root.querySelectorAll('section')) {
       const hasComment = section.querySelector(
@@ -163,6 +171,15 @@ _POST_LIKE_CLICK_JS = (
     + """
   const likeLabels = ['Like', 'Like post'];
   const findSvg = () => {
+    // Direct action-bar buttons — reliable on /p/ and /reel/ permalinks.
+    for (const sel of [
+      'button[aria-label="Like"]', 'button[aria-label="Like post"]',
+      'div[role="button"][aria-label="Like"]', 'div[role="button"][aria-label="Like post"]',
+    ]) {
+      for (const el of document.querySelectorAll(sel)) {
+        if (!isCommentCtx(el)) return el.querySelector('svg') || el;
+      }
+    }
     for (const root of document.querySelectorAll('article, main')) {
       for (const section of root.querySelectorAll('section')) {
         const hasComment = section.querySelector(
@@ -210,7 +227,7 @@ _POST_LIKE_CLICK_JS = (
   };
   const svg = findSvg();
   if (!svg) return { ok: false, reason: 'no_post_like' };
-  const clickEl = svg.closest('button, div[role="button"]') || svg.parentElement || svg;
+  const clickEl = svg.closest ? (svg.closest('button, div[role="button"]') || svg.parentElement || svg) : svg;
   clickEl.click();
   return { ok: true, already: false };
 }
@@ -491,7 +508,22 @@ async def scripted_like(
         cur = ""
     target = canonicalize_ig_url(post_url) or post_url.split("?")[0].rstrip("/")
     if cur and target and cur == target:
-        return await scripted_like_current(browser, settings=cfg)
+        await asyncio.sleep(0.4 + random.uniform(0.1, 0.2))
+        page = await _ensure_page(browser)
+        if await _is_post_liked(page):
+            return ActionResult(True, "Already liked", already_done=True)
+        if "/reel/" in post_url and await _double_tap_reel(page):
+            await asyncio.sleep(0.5)
+            if await _is_post_liked(page):
+                return ActionResult(True, f"Liked {post_url} (double-tap)")
+        clicked, already = await _click_post_like(page)
+        if already:
+            return ActionResult(True, "Already liked", already_done=True)
+        if clicked:
+            await asyncio.sleep(0.4)
+            if await _is_post_liked(page):
+                return ActionResult(True, f"Liked {post_url}")
+        raise ScriptedActionError("selector_not_found", "Post like button not found")
     page = await _navigate(browser, post_url, settle=1.0)
     if await _is_post_liked(page):
         return ActionResult(True, "Already liked", already_done=True)

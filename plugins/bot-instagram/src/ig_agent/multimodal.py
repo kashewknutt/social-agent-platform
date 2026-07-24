@@ -17,6 +17,11 @@ def _get_client(settings: Settings) -> OpenAI:
     return OpenAI(
         api_key=settings.moonshot_api_key,
         base_url=settings.kimi_base_url,
+        # Video/image analysis needs more time than a plain text call, but a
+        # stuck upload/processing call still shouldn't hang the pipeline for
+        # its default (very long) SDK timeout.
+        timeout=settings.kimi_multimodal_timeout_s,
+        max_retries=0,
     )
 
 
@@ -103,17 +108,33 @@ _ENGAGEMENT_DESCRIBE_PROMPT = (
     "concrete and specific — never a vague 'nice vibe' summary."
 )
 
+_FORMAT_CLASSIFY_PROMPT = (
+    "Classify this Instagram Reel/post for people-first founder research. "
+    "Return STRICT JSON only with this shape:\n"
+    '{"content_format":"talking_head|microphone|podcast_interview|spoken_explanation|'
+    'demonstration|q_and_a|direct_instruction|text_slides|meme|faceless_broll|coding_screen|other",'
+    '"human_present":true|false,'
+    '"spoken_or_instructional":true|false,'
+    '"format_reason":"one short sentence",'
+    '"video_description":"2-4 concrete sentences describing what happens"}\n'
+    "Prefer people speaking / instructing. Mark meme, coding_screen aesthetics, text_slides, "
+    "and faceless_broll accurately when that is what you see."
+)
+
 
 def analyze_top_posts(
     filtered_posts: list[dict[str, Any]],
     settings: Settings | None = None,
+    agency_context: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Run multimodal analysis on top-N filtered posts with local media.
 
-    Mutates each analyzed post in place with a `video_description` field so
-    downstream comment/DM drafting (see propose.py) has something concrete
-    and specific to react to, instead of just an often-empty caption.
+    Mutates each analyzed post in place with a `video_description` field and
+    people-first format fields so downstream drafting and the format gate can
+    use what is actually on screen.
     """
+    from ig_agent.format_gate import merge_multimodal_format
+
     cfg = settings or get_settings()
     if not cfg.enable_multimodal:
         return []
@@ -126,6 +147,7 @@ def analyze_top_posts(
     )[:top_n]
 
     notes: list[dict[str, Any]] = []
+    preferred = list((agency_context or {}).get("preferred_formats") or [])
 
     for post in sorted_posts:
         media_path = post.get("video_path") or post.get("media_path") or post.get("screenshot_path")
@@ -140,20 +162,54 @@ def analyze_top_posts(
         suffix = path.suffix.lower()
         try:
             if suffix in (".mp4", ".mov", ".webm", ".avi"):
-                note = analyze_video(path, _ENGAGEMENT_DESCRIBE_PROMPT, cfg)
+                note = analyze_video(path, _FORMAT_CLASSIFY_PROMPT, cfg)
             elif suffix in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
-                note = analyze_image(path, _ENGAGEMENT_DESCRIBE_PROMPT, cfg)
+                note = analyze_image(path, _FORMAT_CLASSIFY_PROMPT, cfg)
             else:
                 continue
         except Exception:
             continue
 
-        description = (note.get("analysis") or "").strip()
+        raw = (note.get("analysis") or "").strip()
+        parsed = _extract_json_object(raw) or {}
+        description = str(parsed.get("video_description") or raw).strip()
         if description:
             post["video_description"] = description
 
+        merged = merge_multimodal_format(
+            post,
+            {
+                **parsed,
+                "analysis": description,
+                "video_description": description,
+            },
+            preferred_formats=preferred,
+        )
+        for key in (
+            "content_format",
+            "human_present",
+            "spoken_or_instructional",
+            "format_score",
+            "format_reason",
+            "format_kept",
+            "video_description",
+        ):
+            if key in merged:
+                post[key] = merged[key]
+
+        # If research is people-first and format fails after vision, drop keep.
+        if agency_context is not None:
+            mode = str(agency_context.get("research_mode") or "people_first").lower()
+            if mode in {"people_first", "people", "people-first", ""}:
+                topical = int(post.get("relevance_score") or 0) >= (
+                    int(cfg.relevance_threshold)
+                )
+                post["kept"] = bool(topical and post.get("format_kept"))
+
         note["post_url"] = post.get("post_url")
         note["relevance_score"] = post.get("relevance_score")
+        note["content_format"] = post.get("content_format")
+        note["format_score"] = post.get("format_score")
         notes.append(note)
 
     return notes
@@ -162,28 +218,36 @@ def analyze_top_posts(
 def analyze_from_filtered_file(
     filtered_path: Path,
     settings: Settings | None = None,
+    agency_context: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Load filtered JSON, run multimodal on top posts, and persist any
-    resulting `video_description` back into the same file (both `posts` and
-    `all_scored`) — matched by post_url — so propose_interactions, which
-    reloads posts from disk, can use it to ground comment/DM drafts in the
-    actual video content instead of guessing from a sparse/empty caption.
-    """
+    """Load filtered JSON, run multimodal on top posts, and persist format fields."""
     data = json.loads(filtered_path.read_text(encoding="utf-8"))
     all_scored = data.get("all_scored") or data.get("posts") or []
-    notes = analyze_top_posts(all_scored, settings)
+    notes = analyze_top_posts(all_scored, settings, agency_context=agency_context)
 
-    descriptions = {
-        p.get("post_url"): p.get("video_description")
-        for p in all_scored
-        if p.get("post_url") and p.get("video_description")
-    }
-    if descriptions:
+    by_url = {p.get("post_url"): p for p in all_scored if p.get("post_url")}
+    if by_url:
+        fields = (
+            "video_description",
+            "content_format",
+            "human_present",
+            "spoken_or_instructional",
+            "format_score",
+            "format_reason",
+            "format_kept",
+            "kept",
+        )
         for key in ("posts", "all_scored"):
             for p in data.get(key) or []:
-                desc = descriptions.get(p.get("post_url"))
-                if desc:
-                    p["video_description"] = desc
+                src = by_url.get(p.get("post_url"))
+                if not src:
+                    continue
+                for field in fields:
+                    if field in src:
+                        p[field] = src[field]
+        # Refresh kept shortlist after format re-score.
+        data["posts"] = [p for p in (data.get("all_scored") or []) if p.get("kept")]
+        data["post_count"] = len(data["posts"])
         filtered_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     return notes

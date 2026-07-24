@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ig_agent.format_gate import enrich_post_identity, score_format_offline
+
 RELEVANT_KEYWORDS = [
     "software",
     "saas",
@@ -31,6 +33,12 @@ RELEVANT_KEYWORDS = [
     "nocode",
     "no-code",
     "ai",
+    "validation",
+    "podcast",
+    "interview",
+    "advice",
+    "lesson",
+    "cofounder",
 ]
 
 IRRELEVANT_KEYWORDS = [
@@ -43,6 +51,21 @@ IRRELEVANT_KEYWORDS = [
     "dance",
 ]
 
+# People-first cues boost topical score when present in caption/description.
+PEOPLE_KEYWORDS = [
+    "podcast",
+    "interview",
+    "microphone",
+    "talking",
+    "speaking",
+    "advice",
+    "lesson",
+    "founder story",
+    "q&a",
+    "explain",
+    "walkthrough",
+]
+
 
 def score_one_offline(
     post: dict[str, Any],
@@ -50,6 +73,7 @@ def score_one_offline(
     agency_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Score a single post (always returns a score; caller applies threshold)."""
+    post = enrich_post_identity(post)
     caption = (post.get("caption") or post.get("raw_text") or "").lower()
     score = 40
     reasons: list[str] = []
@@ -70,12 +94,16 @@ def score_one_offline(
         score += 10
         reasons.append("reel + founder/tech signal")
 
+    if any(k in caption for k in PEOPLE_KEYWORDS):
+        score += 12
+        reasons.append("people-first cue")
+
     if post.get("post_url"):
         score += 5
 
     score = max(0, min(100, score))
     brand = agency_context.get("brand_name", "agency") if agency_context else "agency"
-    return {
+    item = {
         **post,
         "post_index": idx,
         "relevance_score": score,
@@ -83,6 +111,22 @@ def score_one_offline(
         "adaptable_hook": f"Adapt for {brand}",
         "kept": False,  # filled by caller
     }
+    # Attach offline format fields for callers that skip the full gate.
+    fmt = score_format_offline(
+        item,
+        preferred_formats=list((agency_context or {}).get("preferred_formats") or []),
+    )
+    item.update(
+        {
+            "content_format": fmt.get("content_format"),
+            "human_present": fmt.get("human_present"),
+            "spoken_or_instructional": fmt.get("spoken_or_instructional"),
+            "format_score": fmt.get("format_score"),
+            "format_reason": fmt.get("format_reason"),
+            "format_kept": fmt.get("format_kept"),
+        }
+    )
+    return item
 
 
 def score_posts_offline(
@@ -91,6 +135,8 @@ def score_posts_offline(
     threshold: int = 60,
 ) -> list[dict[str, Any]]:
     """Keyword-based relevance scoring when Kimi API is unavailable."""
+    from ig_agent.format_gate import apply_format_gate
+
     scored: list[dict[str, Any]] = []
     for idx, post in enumerate(posts):
         item = score_one_offline(post, idx, agency_context)
@@ -98,7 +144,18 @@ def score_posts_offline(
             continue
         item["kept"] = True
         scored.append(item)
-    return scored
+    require = str((agency_context or {}).get("research_mode") or "people_first").lower() in {
+        "people_first",
+        "people",
+        "people-first",
+        "",
+    }
+    gated = apply_format_gate(
+        scored,
+        preferred_formats=list((agency_context or {}).get("preferred_formats") or []),
+        require_format=require,
+    )
+    return [p for p in gated if p.get("kept")]
 
 
 def score_all_posts_offline(
